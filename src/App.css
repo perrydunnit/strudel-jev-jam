@@ -1,4 +1,8 @@
 :root {
+  /* Tells the browser to render form controls with dark UA styling. Without it the
+     open dropdown is drawn by the operating system in its own light theme, so the
+     page's light text lands on a white popup and cannot be read. */
+  color-scheme: dark;
   --ink: #eee7db;
   --muted: #9a9b8e;
   --line: rgba(238, 231, 219, 0.16);
@@ -58,6 +62,9 @@ h2 { color: var(--ink); font-family: Georgia, serif; font-size: 25px; font-weigh
 .control-rail label { display: block; margin-bottom: 26px; color: var(--muted); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; }
 .control-rail select { display: block; width: 100%; margin-top: 8px; padding: 10px 0; border: 0; border-bottom: 1px solid var(--line); outline: 0; color: var(--ink); background: transparent; font-size: 15px; letter-spacing: 0; text-transform: none; }
 .control-rail select:focus { border-color: var(--acid); }
+/* Belt and braces for the browsers that do let a page style the popup itself, and for
+   the option rows themselves. */
+.control-rail select option, select option { color: var(--ink); background-color: var(--panel); }
 output { justify-content: space-between; float: right; color: var(--ink); font-size: 11px; letter-spacing: 0; }
 input[type='range'] { display: block; width: 100%; margin-top: 18px; accent-color: var(--acid); }
 .transport { width: 100%; margin-top: 12px; padding: 13px 14px; border: 1px solid var(--acid); color: #11150f; background: var(--acid); font-size: 12px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
@@ -84,22 +91,37 @@ input[type='range'] { display: block; width: 100%; margin-top: 18px; accent-colo
 .stage-heading { justify-content: space-between; align-items: flex-start; }
 .bar-count { color: var(--muted); font-family: monospace; font-size: 11px; letter-spacing: 0.08em; }
 .now-playing { margin: 24px 0 28px; border: 1px solid var(--line); background: rgba(16, 19, 18, 0.55); }
-.layer { display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: 4px 14px; padding: 13px 15px; border-top: 1px solid var(--line); }
+.layer { display: grid; grid-template-columns: 72px minmax(0, 1fr) 148px auto; gap: 4px 14px; padding: 13px 15px; border-top: 1px solid var(--line); }
 .layer:first-child { border-top: 0; }
+/* A silenced part stays readable, it just stops claiming attention. */
+.layer.silenced { opacity: 0.42; }
+.layer-actions { grid-column: 4; grid-row: span 2; display: flex; align-self: center; gap: 6px; }
+/* The variable the voice is bound to in the program below, so a row and a line match up. */
+.layer-notes b { color: var(--acid); font-weight: 400; }
+/* One Strudel view per voice. Each renderer reads the canvas backing store for its extent. */
+.voice-view { grid-column: 3; grid-row: span 2; align-self: center; width: 148px; height: 34px; border: 1px solid var(--line); background: rgba(16, 19, 18, 0.7); }
+.layer-button { width: 26px; height: 26px; border: 1px solid var(--line); color: var(--muted); background: transparent; font-family: monospace; font-size: 10px; letter-spacing: 0.04em; }
+.layer-button:hover { border-color: var(--acid); color: var(--ink); }
+.layer-button.muted { border-color: var(--coral); color: var(--coral); }
+.layer-button.soloed { border-color: var(--acid); color: #11150f; background: var(--acid); }
 .layer-name { grid-row: span 2; align-self: center; color: var(--acid); font-family: monospace; font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; }
 .layer-detail { color: var(--muted); font-size: 11px; }
 .layer-notes { padding: 0; color: var(--ink); background: none; font-family: ui-monospace, Consolas, monospace; font-size: 12px; word-break: break-word; }
 .decision-list { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; }
 .decision { display: flex; align-items: center; gap: 12px; min-height: 66px; padding: 11px 13px; border: 1px solid var(--line); color: var(--muted); background: transparent; text-align: left; transition: border-color 160ms ease, background 160ms ease; }
 .decision:hover, .decision.selected { border-color: rgba(200, 216, 108, 0.7); background: var(--panel-soft); }
+.decision.queued { border-color: var(--acid); border-style: dashed; }
+.decision.queued .decision-index { color: var(--acid); }
 .decision-copy { display: grid; gap: 3px; }
 .decision-copy strong { color: var(--ink); font-family: Georgia, serif; font-size: 15px; font-weight: 400; }
 .decision-copy small { font-size: 10px; }
 .decision-mark { width: 8px; height: 8px; margin-left: auto; border-radius: 50%; }
 .pin-tag { margin-left: 8px; color: var(--coral); font-style: normal; letter-spacing: 0.14em; }
 .hint { margin-top: 16px; color: var(--muted); font-size: 10px; line-height: 1.5; }
+.decision-note { margin-top: 10px; color: var(--muted); font-family: monospace; font-size: 10px; line-height: 1.7; }
 
-.shaping { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1px; margin-top: 1px; border: 1px solid var(--line); border-top: 0; background: var(--line); }
+.shaping { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1px; margin-top: 1px; border: 1px solid var(--line); border-top: 0; background: var(--line); }
+.style-note { margin: -18px 0 24px; color: var(--acid); font-size: 10px; line-height: 1.4; }
 .pill-group { padding: 22px; background: var(--panel); }
 .pill-group h3 { margin: 0 0 14px; color: var(--muted); font-family: monospace; font-size: 10px; font-weight: 400; letter-spacing: 0.18em; text-transform: uppercase; }
 .pill { display: grid; gap: 2px; width: 100%; margin-bottom: 7px; padding: 9px 11px; border: 1px solid var(--line); color: var(--muted); background: transparent; text-align: left; transition: border-color 160ms ease, background 160ms ease; }
@@ -113,6 +135,17 @@ input[type='range'] { display: block; width: 100%; margin-top: 18px; accent-colo
 .source summary { padding: 12px 16px; color: var(--muted); font-family: monospace; font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; cursor: pointer; }
 .source pre { margin: 0; padding: 0 16px 16px; overflow-x: auto; color: var(--ink); font-family: ui-monospace, Consolas, monospace; font-size: 11px; line-height: 1.6; }
 
+.bar-strip { display: flex; flex-wrap: wrap; gap: 6px; margin: 22px 0 24px; }
+.bar-chip { display: grid; gap: 2px; min-width: 54px; padding: 8px 10px; border: 1px solid var(--line); color: var(--muted); font-family: monospace; }
+.bar-chip small { font-size: 9px; letter-spacing: 0.1em; }
+.bar-chip strong { color: var(--ink); font-size: 13px; font-weight: 400; }
+.bar-chip.active { border-color: var(--acid); background: var(--panel-soft); }
+.bar-chip.active strong { color: var(--acid); }
+.range-row { display: flex; gap: 8px; margin: 0 0 10px; }
+.range-row label { display: grid; gap: 4px; flex: 1 1 0; color: var(--muted); font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase; }
+.range-row input { width: 100%; padding: 7px 8px; border: 1px solid var(--line); color: var(--ink); background: transparent; font-family: monospace; font-size: 12px; }
+.range-row small { color: var(--acid); font-family: monospace; font-size: 10px; letter-spacing: 0; text-transform: none; }
+
 footer { justify-content: space-between; min-height: 72px; color: var(--muted); font-family: monospace; font-size: 9px; letter-spacing: 0.08em; }
 footer strong { color: var(--acid); font-weight: 400; }
 
@@ -124,6 +157,6 @@ footer strong { color: var(--acid); font-weight: 400; }
   .control-rail { padding: 24px; }
   .decision-stage { padding: 26px 20px 22px; }
   .decision-list { grid-template-columns: 1fr; }
-  .shaping { grid-template-columns: 1fr; }
+  .shaping { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   footer { align-items: flex-start; flex-direction: column; justify-content: center; gap: 7px; padding: 20px 0; }
 }

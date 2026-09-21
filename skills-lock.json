@@ -1,0 +1,173 @@
+{
+  "version": 1,
+  "skills": {
+    "mc-ai-tell-audit": {
+      "source": "jtydhr88/music-composition-skills",
+      "sourceType": "github",
+      "skillPath": "plugins/music-composition/skills/mc-ai-tell-audit/SKILL.md",
+      "computedHash": "ddc11f32caa4327ca4c477b64dd5ec380038efdbd60e29d4661cd29deaaf3f64"
+    },
+    "mc-arrangement-arch": {
+      "source": "jtydhr88/music-composition-skills",
+      "sourceType": "github",
+      "skillPath": "plugins/music-composition/skills/mc-arrangement-arch/SKILL.md",
+      "computedHash": "49240d5aa2a15bd068e79cf9aefc93c8e66e7f9bb5d95d1c7391e87a1389511a"
+    },
+    "mc-case-studies": {
+      "source": "jtydhr88/music-composition-skills",
+      "sourceType": "github",
+      "skillPath": "plugins/music-composition/skills/mc-case-studies/SKILL.md",
+      "computedHash": "7df373f7a53c2fd987d6998a767b07af2d570e013a76ae213c68a89eb1547f9c"
+    },
+    "mc-counterpoint": {
+      "source": "jtydhr88/music-composition-skills",
+      "sourceType": "github",
+      "skillPath": "plugins/music-composition/skills/mc-counterpoint/SKILL.md",
+      "computedHash": "e23ccc849c007dd782162627ca3e36e411a1b8a8b3d419d7364070333b8f194c"
+    },
+    "mc-development": {
+      "source": "jtydhr88/music-composition-skills",
+      "sourceType": "github",
+      "skillPath": "plugins/music-composition/skills/mc-development/SKILL.md",
+      "computedHash": "6159a8f7f3fdcb223b784c10dbb12ab695b2a90df8a8b3f72a14049187e1a5d2"
+    },
+    "mc-form": {
+      "source": "jtydhr88/music-composition-skills",
+      "sourceType": "github",
+      "skillPath": "plugins/music-composition/skills/mc-form/SKILL.md",
+      "computedHash": "8ba5060319bfa066f0b91ac440703b8343f584c52a1b55d5447329d1e84a3ddc"
+    },
+    "mc-harmony": {
+      "source": "jtydhr88/music-composition-skills",
+      "sourceType": "github",
+      "skillPath": "plugins/music-composition/skills/mc-harmony/SKILL.md",
+      "computedHash": "1ecfcdda6c635b90b2de577cfbab78b5a3df02ac1327ca248145979561d64a68"
+    },
+    "mc-melody": {
+      "source": "jtydhr88/music-composition-skills",
+      "sourceType": "github",
+      "skillPath": "plugins/music-composition/skills/mc-melody/SKILL.md",
+      "computedHash": "7b903fc08188b1f2e6f26f57ece2d6c3b5fd6ac6308a1e1df93045425edf07c5"
+    },
+    "mc-mix-intent": {
+      "source": "jtydhr88/music-composition-skills",
+      "sourceType": "github",
+      "skillPath": "plugins/music-composition/skills/mc-mix-intent/SKILL.md",
+      "computedHash": "0c2e700633ef1b5b287070be9e9d2c7c89daa6264bf7af2a10427d47f13bcd90"
+    },
+    "mc-modulation": {
+      "source": "jtydhr88/music-composition-skills",
+      "sourceType": "github",
+      "skillPath": "plugins/music-composition/skills/mc-modulation/SKILL.md",
+      "computedHash": "85e68a8a6a5f48f98b163cf466854b0619db212832a33b9ea5ddbd1c8bbe223e"
+    },
+    "mc-orchestration": {
+      "source": "jtydhr88/music-composition-skills",
+      "sourceType": "github",
+      "skillPath": "plugins/music-composition/skills/mc-orchestration/SKILL.md",
+      "computedHash": "23ae9bae610e25e0e9f6a1abdf526f2c9ff5e16789e140ac1db2d0fcef7f593e"
+    },
+    "mc-progressions": {
+      "source": "jtydhr88/music-composition-skills",
+      "sourceType": "github",
+      "skillPath": "plugins/music-composition/skills/mc-progressions/SKILL.md",
+      "computedHash": "377f6a080135c9c5b426a2842570ba6b61dbf5c6ea44a68a22b4d8963a26b2d9"
+    },
+    "mc-render-compile": {
+      "source": "jtydhr88/music-composition-skills",
+      "sourceType": "github",
+      "skillPath": "plugins/music-composition/skills/mc-render-compile/SKILL.md",
+      "computedHash": "df1f30694e4e1401c5805134b6ac1b7c8fc2744f481ca51ec0068187fedc276f"
+    },
+    "mc-rhythm-groove": {
+      "source": "jtydhr88/music-composition-skills",
+      "sourceType": "github",
+      "skillPath": "plugins/music-composition/skills/mc-rhythm-groove/SKILL.md",
+      "computedHash": "6445375ad553fab9c58792c6a77db275e9403323075affb45d7277578d671a58"
+    },
+    "mc-sound-design": {
+      "source": "jtydhr88/music-composition-skills",
+      "sourceType": "github",
+      "skillPath": "plugins/music-composition/skills/mc-sound-design/SKILL.md",
+      "computedHash": "df40af8faaf59ffcdb3c8c05d9ddf169df91ce44ae20f1e2a3eba54b3cc74238"
+    },
+    "mc-style-chinese-pop": {
+      "source": "jtydhr88/music-composition-skills",
+      "sourceType": "github",
+      "skillPath": "plugins/music-composition/skills/mc-style-chinese-pop/SKILL.md",
+      "computedHash": "684cdd883a1bd488f81833a18ce3c18d8c4f5790d698f015fb34b178bad15590"
+    },
+    "mc-style-cinematic": {
+      "source": "jtydhr88/music-composition-skills",
+      "sourceType": "github",
+      "skillPath": "plugins/music-composition/skills/mc-style-cinematic/SKILL.md",
+      "computedHash": "5dede61aace13f35357b87ce480076a49360a00bf996110d6b2724fa39714966"
+    },
+    "mc-style-citypop-rnb": {
+      "source": "jtydhr88/music-composition-skills",
+      "sourceType": "github",
+      "skillPath": "plugins/music-composition/skills/mc-style-citypop-rnb/SKILL.md",
+      "computedHash": "4f730f31e5e3bc1169234af2db982827cc57caa8042f5923108dc51dfe77732c"
+    },
+    "mc-style-edm": {
+      "source": "jtydhr88/music-composition-skills",
+      "sourceType": "github",
+      "skillPath": "plugins/music-composition/skills/mc-style-edm/SKILL.md",
+      "computedHash": "c35bf8ea9c79bbff860c465e262c11cffbdddfff91ecba3d6a386a97be5ca7b8"
+    },
+    "mc-style-jazz": {
+      "source": "jtydhr88/music-composition-skills",
+      "sourceType": "github",
+      "skillPath": "plugins/music-composition/skills/mc-style-jazz/SKILL.md",
+      "computedHash": "643fdf1be7599654cd076d3755b75ce79d512ad59a057e02164d1a44045aa9d8"
+    },
+    "mc-style-jpop": {
+      "source": "jtydhr88/music-composition-skills",
+      "sourceType": "github",
+      "skillPath": "plugins/music-composition/skills/mc-style-jpop/SKILL.md",
+      "computedHash": "4c905de3fa0d58030e171cc6d166e34e32a6bc6b478455733ae76caa45821f8f"
+    },
+    "mc-style-rock-band": {
+      "source": "jtydhr88/music-composition-skills",
+      "sourceType": "github",
+      "skillPath": "plugins/music-composition/skills/mc-style-rock-band/SKILL.md",
+      "computedHash": "dbf07a2eb46196e14a184c04b827c5f323e57fa0f7053fae6de0d8b25af31373"
+    },
+    "mc-symbolic-score": {
+      "source": "jtydhr88/music-composition-skills",
+      "sourceType": "github",
+      "skillPath": "plugins/music-composition/skills/mc-symbolic-score/SKILL.md",
+      "computedHash": "33b5371e98e7b2e5628f7247384d57c441cea0ffb5b86c39338316fef65264ea"
+    },
+    "mc-texture-layering": {
+      "source": "jtydhr88/music-composition-skills",
+      "sourceType": "github",
+      "skillPath": "plugins/music-composition/skills/mc-texture-layering/SKILL.md",
+      "computedHash": "65f06fa4a2b3c6730e5978fdad9782063b0999a257450c3fc98411fc258cd7e4"
+    },
+    "mc-vocal-direction": {
+      "source": "jtydhr88/music-composition-skills",
+      "sourceType": "github",
+      "skillPath": "plugins/music-composition/skills/mc-vocal-direction/SKILL.md",
+      "computedHash": "fff8d612f55afdfbe238c37f8601cf2d1428dd4b891b678bad703ea44a45840a"
+    },
+    "mc-workflow": {
+      "source": "jtydhr88/music-composition-skills",
+      "sourceType": "github",
+      "skillPath": "plugins/music-composition/skills/mc-workflow/SKILL.md",
+      "computedHash": "505c6c71624b5421e8674b6cc6dfcec609317e27cec6241e0a0a0a228854caa1"
+    },
+    "music-composition": {
+      "source": "SJY051/music-composition",
+      "sourceType": "github",
+      "skillPath": "SKILL.md",
+      "computedHash": "6f70c5a4eb9b1928c13d1c528b7698439f4a67c3ca16bf7b8a7bf9afc45217b4"
+    },
+    "typesafe-ai": {
+      "source": "typesafe-ai/skills",
+      "sourceType": "github",
+      "skillPath": "skills/typesafe-ai/SKILL.md",
+      "computedHash": "a6ed7d8a3d2b2d962f8e44b17663767c433b7d1fc32d1ed0349a44f7372513e8"
+    }
+  }
+}
