@@ -103,6 +103,9 @@ export function layerSound(layer: StyleLayer): Sound {
     // A sample or a soundfont; an oscillator pad leaves its name in `synth` instead.
     sample: instrument.font ?? instrument.sample,
     synth: instrument.synth,
+    // A built-in waveform is a shape, not a timbre, so an additive instrument carries the
+    // spectrum that makes it one.
+    partials: instrument.partials,
     lpf: layer.lpf,
     lpq: layer.lpq,
     lpenv: layer.lpenv,

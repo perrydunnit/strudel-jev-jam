@@ -12,7 +12,7 @@
  */
 import { chordNotes, chordSymbol, findChord, pitch } from './chords'
 import { arpTokens, findArp, findRhythm, type Arp, type Rhythm } from './figures'
-import { findSequence, findStyle } from './styles'
+import { findSequence, findStyle, chartSections, sectionBars } from './styles'
 import {
   LAYER_ORBITS,
   type Bar,
@@ -53,6 +53,8 @@ type Voicing = {
   /** The figure's own level, so its accents scale with the instrument it plays on. */
   accent: number
   bassTemplate: string[]
+  /** How long each section of the chart being played is, in bars, in playing order. */
+  sections: number[]
 }
 
 /** A voice: the line of Strudel it becomes, and the name the `stack` refers to it by. */
@@ -65,8 +67,15 @@ export type PatternPlan = {
   code: string
   /** The label of the sequence being played, for the readout. */
   sequenceLabel: string
-  /** One entry per bar of the sequence, in playing order. */
+  /** One entry per bar of the form, in playing order. */
   bars: Bar[]
+  /**
+   * How long each section is, in bars, in playing order.
+   *
+   * The panel and the decision both need to know where a section starts, and a section is as long
+   * as its own music - so the answer is this list rather than a number the whole app shares.
+   */
+  sectionBars: number[]
   layers: Layer[]
   /** The instrument the live solo voice should use. */
   solo: Selection['solo']
@@ -75,22 +84,21 @@ export type PatternPlan = {
 }
 
 /**
- * Bars in a handoff program: the rest of the phrase playing now, then the incoming one.
- * It has to be a whole number of phrases, and longer than one, so the incoming phrase can
- * begin on a bar line and still have the whole of itself in front of it. Eight bars is one
- * phrase, so the handoff is two. The slot for the cycle already sounding is the only one
- * that outlives its phrase, and the app rebuilds the program without a handoff as soon as
- * the change has landed, long before the pattern comes back around.
+ * Bars in a handoff program: the whole of the form playing out, then the whole of the one coming
+ * in, so the incoming form can begin on a bar line and still have all of itself in front of it.
+ * The length is two charts rather than a fixed number, because a chart is per style. The slot for
+ * the cycle already sounding is the only one that outlives its chart, and the app rebuilds the
+ * program without a handoff as soon as the change has landed, long before the pattern comes back
+ * around.
  */
-const HANDOFF_BARS = 16
 
 /**
  * The bars the program plays, in the order the cycle counter asks for them.
  *
- * `playing` is the phrase the player is hearing - the one `buildPattern` was given, and the
- * one the readout describes. The handoff names the phrase on its way in, and its bars are
- * placed after whatever is left of the one playing, so the switch is a property of the
- * pattern rather than of when it was evaluated.
+ * `playing` is the chart the player is hearing - the one `buildPattern` was given, and the one the
+ * readout describes. The handoff names the form on its way in, and its bars are placed after
+ * whatever is left of the one playing, so the switch is a property of the pattern rather than of
+ * when it was evaluated.
  */
 function handoffBars(
   playing: BuiltBar[],
@@ -99,26 +107,40 @@ function handoffBars(
 ): BuiltBar[] {
   if (!handoff || handoff.to === handoff.from) return playing
   const next = barsFor(handoff.to)
-  const at = ((handoff.cycle % HANDOFF_BARS) + HANDOFF_BARS) % HANDOFF_BARS
-  // Bars of the phrase playing now that are still to come, the one in progress included.
+  const total = playing.length * 2
+  const at = ((handoff.cycle % total) + total) % total
+  // Bars of the chart playing now that are still to come, the one in progress included.
   const remaining = playing.length - (((handoff.cycle % playing.length) + playing.length) % playing.length)
-  return Array.from({ length: HANDOFF_BARS }, (_, slot) => {
-    const ahead = ((slot - at) + HANDOFF_BARS) % HANDOFF_BARS
+  return Array.from({ length: total }, (_, slot) => {
+    const ahead = ((slot - at) + total) % total
     return ahead < remaining
       ? playing[(handoff.cycle + ahead) % playing.length]
       : next[(ahead - remaining) % next.length]
   })
 }
 
+/** A layer's notes for each section of the form, so the panel can show the section playing. */
+function bySection(bars: BuiltBar[], lengths: number[], render: (bar: BuiltBar) => string): string[] {
+  let at = 0
+  return lengths.map((count) => {
+    const notes = bars.slice(at, at + count).map(render).join(' ')
+    at += count
+    return notes
+  })
+}
+
 /**
- * The bars of one phrase, in that phrase's own order.
+ * The bars of the chart a leader starts, in the order they are played.
  *
- * Building them for any sequence, rather than only the one playing, is what lets a handoff
- * keep the phrase that is playing while the next one waits its turn.
+ * A chart is the style's form rotated to begin at the leader, so this is the whole form - every
+ * section, in order - rather than a single phrase. Building it for any leader, rather than only
+ * the one playing, is what lets a handoff keep the form that is playing while the next one waits
+ * its turn.
  */
-function barsFor(voicing: Voicing, id: SequenceId): BuiltBar[] {
+function barsFor(voicing: Voicing, leader: SequenceId): BuiltBar[] {
   const { style, selection, rhythm, accent, bassTemplate } = voicing
-  return findSequence(selection.style, id).bars.map((bar) => {
+  const bars = chartSections(style, leader).flatMap((section) => section.bars)
+  return bars.map((bar) => {
     const ids: ChordId[] = typeof bar === 'string' ? [bar] : bar
     // Two chords in a bar take half a bar each, so the harmony speeds up without any
     // layer losing its place. Each chord gets the opening of the bass figure, so the
@@ -178,11 +200,42 @@ const bank = (name?: string) => (name ? `.bank("${name}")` : '')
 /** The distinct sample names a pattern refers to, for warming. */
 const soundNames = (pattern: string) => [...new Set(pattern.match(/[a-z][a-z0-9_]*/g) ?? [])]
 
-function drumVoice({ style }: Voicing): Voice {
+/**
+ * A `<...>` mask with a 1 on the bars a cue fires on.
+ *
+ * `section` marks the last bar of every section and `form` only the last bar of the whole form. Both
+ * are built from the actual section lengths, so a twelve-bar blues gets its section cue on its own
+ * twelfth bar rather than on a bar count that assumed eight.
+ */
+const cueMask = (lengths: number[], on: 'section' | 'form') => {
+  const total = lengths.reduce((sum, count) => sum + count, 0)
+  const fires = new Set<number>()
+  let at = 0
+  lengths.forEach((count) => {
+    at += count
+    if (on === 'section') fires.add(at - 1)
+  })
+  if (on === 'form') fires.add(total - 1)
+  return `<${Array.from({ length: total }, (_, index) => (fires.has(index) ? '1' : '0')).join(' ')}>`
+}
+
+function drumVoice({ style, sections }: Voicing): Voice {
   const { drums } = style
+  // Two cues, told apart by ear rather than by counting. `fill` lands on the last bar of every
+  // section and `turn` on the last bar of the whole form, so the cycle has a small landmark every
+  // eight bars and a different, bigger one at the top.
+  //
+  // Layered with `superimpose` rather than replacing the bar: the groove carries straight through
+  // and the fill sits on top, which is what lets a cue be obvious without sounding like a
+  // mistake. The masks are one value per bar, so they line up with the sections by the same
+  // absolute-cycle alignment the arrangement masks already rely on - and both are applied before
+  // the bank, filter and gain, so the cue is the same instrument as the kit it belongs to.
   return {
     name: 'drums',
-    code: `s("${drums.pattern}")${bank(drums.bank)}.lpf(${drums.lpf ?? 12000}).gain(${drums.gain})`
+    code: `s("${drums.pattern}")`
+      + `.when("${cueMask(sections, 'section')}", (x) => x.superimpose(() => s("${drums.fill}")))`
+      + `.when("${cueMask(sections, 'form')}", (x) => x.superimpose(() => s("${drums.turn}")))`
+      + `${bank(drums.bank)}.lpf(${drums.lpf ?? 12000}).gain(${drums.gain})`
       + `${feelCode('drums')}${maskCode(style.arrangement.drums)}${orbit('drums')}`,
   }
 }
@@ -233,25 +286,38 @@ function chordVoice(voicing: Voicing, programBars: BuiltBar[]): Voice {
 }
 
 function drumsRow(style: Style, rhythm: Rhythm): Layer {
-  return { id: 'drums', name: 'Drums', detail: `${style.drums.bank ?? 'uzu kit'} · ${rhythm.label}`, notes: style.drums.pattern }
+  return { id: 'drums', name: 'Drums', detail: `${style.drums.bank ?? 'uzu kit'} · ${rhythm.label}`, notes: style.drums.pattern, sectionNotes: [] }
 }
 
-function bassRow(style: Style, bars: BuiltBar[]): Layer {
-  return { id: 'bass', name: 'Bass', detail: `${layerLabel(style.bass)} · root per chord`, notes: bars.map((bar) => bar.roots).join(' ') }
+function bassRow(style: Style, bars: BuiltBar[], lengths: number[]): Layer {
+  return {
+    id: 'bass',
+    name: 'Bass',
+    detail: `${layerLabel(style.bass)} · root per chord`,
+    notes: bars.map((bar) => bar.roots).join(' '),
+    sectionNotes: bySection(bars, lengths, (bar) => bar.roots),
+  }
 }
 
-function padRow(style: Style, bars: BuiltBar[]): Layer {
-  return { id: 'pad', name: 'Pad', detail: `${layerLabel(style.pad)} · held for one chord`, notes: bars.map((bar) => bar.label).join(' ') }
+function padRow(style: Style, bars: BuiltBar[], lengths: number[]): Layer {
+  return {
+    id: 'pad',
+    name: 'Pad',
+    detail: `${layerLabel(style.pad)} · held for one chord`,
+    notes: bars.map((bar) => bar.label).join(' '),
+    sectionNotes: bySection(bars, lengths, (bar) => bar.label),
+  }
 }
 
 function chordRow(voicing: Voicing, bars: BuiltBar[], arp: Arp): Layer {
-  const { style, rhythm } = voicing
+  const { style, rhythm, sections } = voicing
   const detail = [arp.label, rhythm.label, layerLabel(style.arpSound), describePresence(style.arrangement.chords)]
   return {
     id: 'chords',
     name: 'Chords',
     detail: detail.filter(Boolean).join(' · '),
     notes: bars[0].parts.flatMap((part) => part.figure.map((event) => event.token)).join(' '),
+    sectionNotes: bySection(bars, sections, (bar) => bar.parts.flatMap((part) => part.figure.map((event) => event.token)).join(' ')),
   }
 }
 
@@ -268,7 +334,11 @@ function soundsToWarm(voicing: Voicing, programBars: BuiltBar[]): PlanSound[] {
     warm.set(`${name}|${bankName ?? ''}|${note ?? ''}`, { name, bank: bankName, note })
   }
 
+  // The cues are part of the drums, so they have to be warmed with them: an unwarmed cue would
+  // arrive late the first time it played, which is precisely the bar it exists to make audible.
   soundNames(style.drums.pattern).forEach((name) => add(name, style.drums.bank))
+  soundNames(style.drums.fill).forEach((name) => add(name, style.drums.bank))
+  soundNames(style.drums.turn).forEach((name) => add(name, style.drums.bank))
   soundNames(style.perc.pattern).forEach((name) => add(name, style.perc.bank))
 
   const bassSample = layerSound(style.bass).sample
@@ -294,25 +364,30 @@ export function buildPattern(selection: Selection, handoff?: Handoff): PatternPl
   const phrase = findSequence(selection.style, selection.sequence)
   const rhythm = findRhythm(selection.rhythm)
   const arp = findArp(selection.arp)
+  // The chart as it will be heard, in the order it will be heard, so the section lengths and the
+  // cue positions belong to the leader rather than to the style's nominal opener.
+  const played = chartSections(style, selection.sequence)
+  const lengths = sectionBars(played)
   const voicing: Voicing = {
     style,
     selection,
     rhythm,
     accent: style.arpSound.gain ?? 0.5,
     bassTemplate: style.bass.template.split(/\s+/),
+    sections: lengths,
   }
 
-  // `bars` describes the phrase the player is hearing; `programBars` is what the program
-  // contains, which during a handoff also holds the incoming phrase.
+  // `bars` describes the form the player is committed to; `programBars` is what the program
+  // contains, which during a handoff also holds the form coming in.
   const bars = barsFor(voicing, selection.sequence)
   const programBars = handoffBars(bars, handoff, (id) => barsFor(voicing, id))
 
   const voices: Voice[] = [drumVoice(voicing), percVoice(voicing), bassVoice(voicing, programBars)]
-  const layers: Layer[] = [drumsRow(style, rhythm), bassRow(style, bars)]
+  const layers: Layer[] = [drumsRow(style, rhythm), bassRow(style, bars, lengths)]
 
   if (selection.chordMode !== 'arp') {
     voices.push(padVoice(voicing, programBars))
-    layers.push(padRow(style, bars))
+    layers.push(padRow(style, bars, lengths))
   }
   if (selection.chordMode !== 'pad') {
     voices.push(chordVoice(voicing, programBars))
@@ -330,6 +405,7 @@ export function buildPattern(selection: Selection, handoff?: Handoff): PatternPl
     ].join('\n'),
     sequenceLabel: phrase.label,
     bars: bars.map((bar) => ({ chordLabel: bar.label, notes: bar.notes })),
+    sectionBars: lengths,
     layers,
     solo: selection.solo,
     warm: soundsToWarm(voicing, programBars),

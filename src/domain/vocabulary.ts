@@ -6,9 +6,11 @@
  * the app hands to the audio engine. Nothing here knows how a pattern is built, which is
  * what keeps this module free of dependencies and out of every cycle.
  *
- * `LAYER_ORBITS` and `PHRASE_BARS` are here for the same reason. They are properties of
- * the arrangement rather than of any one part of it, and the pattern builder, the mixer
- * and the bar counter all have to agree on them exactly.
+ * `LAYER_ORBITS` is here for the same reason. It is a property of the arrangement rather than of
+ * any one part of it, and the pattern builder, the mixer and the bar counter all have to agree on
+ * it exactly. Section length used to live here too, as `PHRASE_BARS`; it is a property of the music
+ * rather than of the app, so it lives on the sections themselves now and is read back with
+ * `sectionBars`.
  */
 import type { InstrumentId } from './samples'
 
@@ -28,7 +30,7 @@ export type ChordId =
 export type ArpId = 'block' | 'up' | 'down' | 'broken' | 'pedal'
 export type RhythmId = 'lilt' | 'pulse' | 'syncopated' | 'driving'
 export type ChordModeId = 'pad' | 'arp' | 'combo'
-export type StyleId = 'night-drive' | 'broken-beat' | 'slow-bloom' | 'after-hours'
+export type StyleId = 'night-drive' | 'broken-beat' | 'slow-bloom' | 'after-hours' | 'blues'
 /** Sequences belong to a style, so their ids are namespaced per style. */
 export type SequenceId = string
 
@@ -73,7 +75,20 @@ export const LAYER_ORBITS: Record<Exclude<LayerId, 'solo'>, number> = {
   chords: 4,
 }
 
-export type Layer = { id: LayerId; name: string; detail: string; notes: string }
+export type Layer = {
+  id: LayerId
+  name: string
+  detail: string
+  notes: string
+  /**
+   * The same notes, one entry per section of the form.
+   *
+   * A form is thirty-two bars, so a layer's notes for the whole of it are a wall of text and
+   * tell the player nothing about the bar they are on. Grouped by section, the panel can show
+   * the eight bars being played. Empty for a layer that does not vary by section, like the drums.
+   */
+  sectionNotes: string[]
+}
 export type Bar = { chordLabel: string; notes: string }
 
 /**
@@ -129,7 +144,9 @@ export type StyleLayer = {
 }
 
 /**
- * Which bars of a phrase a layer plays in, as one digit per bar of `PHRASE_BARS`.
+ * Which bars of a section a layer plays in, as one digit per bar of the section.
+ *
+ * The mask must divide the form, so the usual value is as long as one section and repeats with it.
  *
  * This is the arranging device a pattern needs and harmony cannot supply: the chords say
  * what is happening, and this says who is in the room. Only the two decorative layers are
@@ -164,13 +181,21 @@ export type Handoff = {
   cycle: number
 }
 
-/** Every phrase is this long, and the handoff, the bar counter and the UI all assume it. */
-export const PHRASE_BARS = 8
+/**
+ * A section's length belongs to the section, not to the app.
+ *
+ * The unit of this music is the section, and a section is however many bars the form it belongs to
+ * actually needs: eight for a house or garage phrase, twelve for a blues, whatever a standard
+ * wants. There used to be one `PHRASE_BARS = 8` here that everything assumed, which meant the blues
+ * had to be squeezed into eight bars when its form is twelve. Anything that needs the length now
+ * asks for it - `sectionBars` on the plan, or `chartSections` on a style - and `validate.ts` checks
+ * the lengths of each style's own sections rather than comparing them all to a constant.
+ */
 
 export type ChordBar = ChordId | [ChordId, ChordId]
 
 /**
- * One phrase: `PHRASE_BARS` bars of chords, written as a phrase rather than a loop.
+ * One section: chords, written as a phrase rather than a loop.
  *
  * Every sequence belongs to exactly one style, and no two sequences *within* a style open
  * on the same chord. That is what lets Jev choose the next chord and have exactly one
@@ -199,9 +224,46 @@ export type Style = {
   description: string
   /** This style's own phrases. No two of them open on the same chord. */
   sequences: Sequence[]
+  /**
+   * The chart: the order this style's phrases are played in, as one repeating form.
+   *
+   * A phrase is a section, and a form is several sections in a fixed order - which is what
+   * makes the music playable rather than merely followable. The form is what the player commits
+   * to and counts on; a phrase on its own is not a form, it is a loop, and eight bars is not
+   * long enough to settle into. `form` is treated as a cycle: the last section leads back to
+   * the first. Each style may be a different length, and each of its sections may be too - the
+   * length in bars is the sum of the sections' own, four eights for a dance phrase and three
+   * twelves for a blues - and `validate.ts` checks that every consecutive pair, including the
+   * wrap, resolves.
+   *
+   * Deliberately the same phrases as `sequences` rather than new music: the form is an
+   * arrangement of the material, not more of it.
+   */
+  form: SequenceId[]
   /** The chords this style is allowed to use. Every sequence chord must appear here. */
   palette: ChordId[]
-  drums: { pattern: string; bank?: string; gain: number; lpf?: number }
+  drums: {
+    pattern: string
+    bank?: string
+    gain: number
+    lpf?: number
+    /**
+     * Added on the last bar of every section, on top of the groove.
+     *
+     * A form is thirty-two bars, which is far too long to hold your place in by counting, so the
+     * arrangement has to tell the player where they are instead. This is the small cue: a pickup
+     * on the last bar of a section, so a section end sounds like a section end.
+     */
+    fill: string
+    /**
+     * Added on the last bar of the whole form - the same idea one level up, and a different shape.
+     *
+     * The two have to be told apart by ear rather than by working it out, so they cannot be the
+     * same pattern (`assertCuesAreDistinct` refuses it): the section cue is a gesture, and this is
+     * the top of the cycle coming round.
+     */
+    turn: string
+  }
   perc: { pattern: string; bank?: string; gain: number }
   /** Tokens: `1` bass note, `3` third, `5` fifth, `8` bass an octave up, `~` rest. */
   bass: StyleLayer & { template: string }

@@ -13,8 +13,8 @@ Working end to end:
 - Every phrase has a **shape**. The percussion and the chord figure enter and leave on their own bar schedule, so the arrangement breathes instead of running all five layers from bar 1 to bar 8; the drums, bass and pad never drop out. See *The phrase has a shape* below.
 - Nothing sits exactly on the grid. The bass, pad and chord figure have **moving filters**, and the drums, percussion, bass and figure vary their timing and their level hit to hit. See *Nothing sits exactly on the grid* below.
 - Jev can be **switched off** entirely. With it off nothing is sent, the phrase repeats, and only your own choices move the music.
-- Solo instruments are 18 colours - acoustic, electric, cosmic, plucked, mallet and wind - each pitched, so notes play in tune. Three of them are guitars, which exist nowhere in the CDN sample maps and therefore come from the General MIDI soundfonts.
-- Choices are visible and playable in the UI: style, key, tempo, sequence, chord mode (pads / arpeggio / combo), 5 arpeggio figures, 4 rhythm patterns and 18 solo instruments. `Key` transposes with correct accidentals and `Tempo` drives the Strudel clock.
+- Solo instruments are 25 colours - acoustic, electric, cosmic, plucked, mallet and wind - each pitched, so notes play in tune. Five of them are guitars, which exist nowhere in the CDN sample maps and therefore come from the General MIDI soundfonts.
+- Choices are visible and playable in the UI: style, key, tempo, sequence, chord mode (pads / arpeggio / combo), 5 arpeggio figures, 4 rhythm patterns and 25 solo instruments. `Key` transposes with correct accidentals and `Tempo` drives the Strudel clock.
 - A "What is playing right now" panel shows one line per voice - the program is written as a `const` per layer and a final `stack` - and each voice carries its own Strudel view: an event grid for the drums, a piano roll for the bass, a spectrum for the pad, a pitch wheel for the chord figure and an oscilloscope for the live keys.
 - Real Web MIDI: `requestMIDIAccess`, device list, hot-plug rescan, note-on/off (including velocity-0 note-off), sustain pedal, and the live notes/pedal state surfaced in the UI.
 - MIDI notes sound through Strudel's audio engine: each key press starts a note with the selected instrument's key voice (velocity mapped to gain), and each key release fades it out, so note length follows the key.
@@ -95,20 +95,88 @@ minor and stated at one chord per bar (a two-chord bar where the two-five wants 
 | Reverse loop | 逆循環 (2516) spliced with the canon's second half | `iiø7 V7 i VI / iv i [iiø7 V7] i` |
 | Komuro turn | 6451, turned to begin on its own subdominant, then the canon | `iv V7 i VI / i V7 VI III` |
 
-The other three styles draw on the same library. Broken beat runs the Marusa progression with
+The other four styles draw on the same library. Broken beat runs the Marusa progression with
 sevenths and the 1645 loop, the minor line cliche, the back-door cadence, and the Andalusian
 fall. Slow bloom takes the Andalusian descent and the descending-bass progression with the
 dominant replaced by a suspended one - the library's own suggestion for a more refined sound -
-and uses no leading tone anywhere. After-hours has the standard turnaround read forwards and
-backwards, the minor two-five, the Neapolitan cadence and the Andalusian fall.
+and uses no leading tone anywhere. After-hours takes the standard turnaround, the royal-road
+progression, the minor two-five, the Neapolitan cadence and the Andalusian fall, and the form it
+builds from them ends on a dominant - see below. The blues takes the twelve-bar form itself, and
+plays it as twelve bars rather than cutting it to fit.
 
 This replaced two separate mistakes. The first version was *invented*, assembled from generic
 functional moves - a descent to the dominant, a cadence landing home - which is precisely what
 the lookup library exists to prevent. And invented or not, nine of the sixteen phrases repeated
 three of their four bars between the halves: they were four-bar loops played twice, which the ear
-hears at once even when the notation looks like eight bars. Thirteen of the sixteen now share
-nothing or one bar between the halves. `assertPhrasesDevelop` in `validate.ts` checks that at
-import, so a phrase that is secretly a four-bar loop cannot reach playback.
+hears at once even when the notation looks like eight bars. "Thirteen of the sixteen now share
+nothing or one bar between the halves" was true and not enough, and that is worth recording,
+because the ear found the one it missed before the code did.
+
+#### The audit, and the two rules it produced
+
+The same analysis was then run over all twenty sequences - halves side by side, positional repeats,
+a rotation of the first half, a dominant at the midpoint that fails to resolve to the tonic, the
+section seams, and every four-bar half compared against every other in the same style. Two faults
+surfaced that nothing had been checking for, and each is now a rule.
+
+`assertSectionsDiffer` refuses a style in which two halves of the form are the same four bars. The
+per-phrase rule cannot see this, because it only ever looks inside one phrase. Night-drive had two
+sections sharing the canon's closing half, and three of the four blues sections - which were then
+eight bars each - shared `iv7 i V7 i`, so the blues was one section plus three variations on its
+own back half. Rewriting the blues as three genuine twelve-bar choruses removed the other two.
+
+`assertPatternsDivideTheBar` refuses a drum or percussion voice whose top-level token count is not
+a power of two. broken-beat's kick was `bd*2 [~ bd] [bd ~]` - **three tokens, so the bar divided
+into thirds** - against a snare and a hi-hat in two. A permanent 3:2 polyrhythm does not sound
+syncopated, it sounds incoherent, and it was not the drum *sounds* that were wrong. The same voice
+also had a bare `sd`, which is one token and therefore one onset **on the downbeat**, fighting the
+kick. Measured onsets before: `0, 1/6, 1/2, 2/3`. After: `0, 2/16, 4/16, 6/16, 8/16, 12/16` -
+every one on a sixteenth, with the snare on beats 2 and 4 where a backbeat belongs.
+
+The volume complaint was real too, and separable. At equal gain the MPC60 snare measures **2.9x the
+kick** (rms 0.293 against 0.1024), so a snare on the downbeat was the loudest thing in the kit. With
+the pattern fixed and the kit turned down, broken-beat's drum bus went from 0.1736 rms and 1.27 peak
+to 0.1358 and 0.79 - the same range as the other four.
+
+Auditing also turned up one genuine harmonic fault: `broken-beat/cliche` used `V7` (G7, the dominant
+of the *tonic*) at bar 4 to push into `iv` (Fm). The move to the subdominant wants the dominant *of
+the subdominant*; it is `V7/iv` (C7) now, which is what the phrase's own second half was already
+using. The rest of the flags were false positives of the midpoint rule - a step or a modal move
+between two four-bar units is ordinary music - and the audit is a diagnostic, not an assertion.
+
+A note on method, because it cost real time: **`tsc` does not execute the module.** Every
+import-time assertion in `validate.ts` is skipped by a typecheck, so "the build is clean" says
+nothing about whether the invariants hold. They need something that imports the tables -
+`npx tsx -e "import { styles } from './src/domain/styles.ts'"`, or `scripts/verify-handoff.ts`, or
+the app itself.
+
+#### The check that was half a check
+
+`assertPhrasesDevelop` compares a phrase's two halves **position by position** and refuses more
+than two matches, so a phrase that is secretly a four-bar loop cannot reach playback. That misses
+one case, and the after-hours turnaround was it:
+
+```
+half 1:  i    VI    iiø7   V7
+half 2:  iiø7 V7    i      VI
+```
+
+Rotate half 1 left by two and you get half 2 exactly. It is the same four-bar loop stated twice,
+entered from a different point - and it shares **zero** bars with itself position by position, so
+the check passed it. What it sounds like is what a jammer notices: four bars where nothing new
+happens, and a dominant at bar 4 that promises the tonic and resolves to the subdominant instead.
+The rule now also compares the halves as cycles and rejects a rotation, which is the same fault in
+a disguise. It rejects exactly one phrase in the catalogue - that one.
+
+The fix followed from the diagnosis. A turnaround ends on a dominant, and a dominant wants the
+tonic, so whatever follows bar 4 has to *be* the tonic: the phrase became an antecedent that opens
+and a consequent that closes. Looking at the whole form then turned up a second fault in the same
+style - its four sections were built from six four-bar units, so two units played twice and two
+pairs of sections were near-duplicates of each other. Every one of the eight halves now states its
+own unit, and the last section ends on a dominant with nowhere to go but home, which is where the
+form starts. Verified in the page: eight distinct halves, no duplicates, and the form's last bar
+is `G7` resolving to `Cm` at bar 1 - so the drum cue on bar 32 is marking a real turnaround rather
+than an arbitrary full stop.
 
 The library also carries a warning list, and it is worth being honest about it: `1564`, `6415`,
 `1645` and `4536` are what generative models reach for by default, and `4536` is the Canon's own
@@ -130,6 +198,33 @@ deliberately not used as-is. Hooktheory's popular-progression data pointed the s
 intermediate and advanced tiers are almost entirely inversions, secondary dominants and
 borrowed chords.
 
+### The blues, and three places it bends
+
+The blues is a form rather than a progression, so its sections are readings of the same twelve
+bars: the plain chorus (`i i i i iv7 iv7 i i V7 iv7 i i`), a chromatic reading that opens on the
+subdominant and comes home from the flat sixth and the Neapolitan
+(`iv7 iv7 i i iv7 iv7 i i VI bII V7 i`), and the quick change, with the tonic turned into its own
+dominant so the subdominant arrives in the second bar as a resolution rather than as a move
+(`V7/iv iv7 V7/iv V7/iv iv7 iv7 V7/iv V7/iv V7 iv7 V7/iv V7`). Each opens on a different degree, as
+every style's sections do, and they are twelve bars each rather than eight: a chorus is twelve, and
+cutting one down to fit a shared length was the compromise the old `PHRASE_BARS` constant forced on
+this style and no other.
+
+Three things about it are worth stating rather than leaving to be discovered:
+
+- **It is in minor, because the key vocabulary is.** `KEYS` holds C, D, F and A minor and nothing
+  else, so there is no major blues in this catalogue. This is the minor blues - the form as played
+  by anyone reaching for the flat third, which is most of it.
+- **It is straight, not a shuffle.** A shuffle means triplets, the whole app runs on one sixteenth
+  grid, and `assertRhythmsDivideTheGrid` refuses a figure that does not divide it - a rule that
+  exists because a triplet figure against straight drums was a real bug here once, not a
+  theoretical one. So this is the blues-rock reading of the form, eighth notes rather than a
+  twelve-eight lilt, and it is the one place the style is not the idiom it is named for.
+- **The tonic is the plain triad, not `i7`.** The vocabulary's `i7` puts the flat seventh in the
+  bass, which is a fine voicing on a passing chord and the wrong one on a tonic: it moves the home
+  note a whole step down, mid-phrase. The blues I7 is `V7/iv` instead - the same four notes with
+  the root where it belongs - and that is what the quick change opens on.
+
 A bar holds one chord, or two when the harmony should move twice as fast. A phrase is one
 Strudel slowcat, one cycle per bar, so it loops without anything being rebuilt:
 
@@ -148,7 +243,134 @@ the key alone. The spelling tables are indexed by absolute pitch class and tuned
 the transposed accidentals come out right: the dominant's raised seventh is B natural in C
 minor, C sharp in D minor, E natural in F minor and G sharp in A minor.
 
-Because the phrase lives inside the pattern, it loops without anything being rebuilt. The app reads `getTime()` - Strudel's own scheduler position in cycles - to know which bar is playing, so the bar strip in the UI is truthful and Jev's answer is applied on the bar line rather than on a wall-clock guess. Jev is asked one bar before the phrase ends, and the answer is queued until it wraps.
+Because the phrase lives inside the pattern, it loops without anything being rebuilt. The app reads `getTime()` - Strudel's own scheduler position in cycles - to know which bar is playing, so the bar strip in the UI is truthful and Jev's answer is applied on the bar line rather than on a wall-clock guess. Jev is asked **halfway through the phrase**, which is half a phrase of notice rather than the one bar it used to be.
+
+#### The form holds, and the playing varies
+
+This is the part that had to be learned rather than designed, and it is worth stating plainly
+because the code used to do the opposite.
+
+In a real jam the harmony is the *stable* layer. A form gets called - a minor blues, rhythm
+changes, a two-chord vamp - and then it repeats unchanged for as many choruses as anyone wants
+while the interest comes from who is playing, how loudly, in what register and with what feel.
+Changes are rare, signalled events: a nod, "last time", "to the bridge". Nobody changes the
+chords every eight bars. The most useful thing the local library has to say about this is a line
+meant for answer shape rather than music - *be predictable in structure and creative in
+material* - which is the same principle. The rest of the library points the other way, because it
+is written for composed tracks that must hold a listener on one hearing, and a jam has the
+opposite priority: predictability is what lets someone else join in.
+
+The app used to be exactly backwards. The prompt told the model that *a change is the default
+answer and repeating is the exception*, the candidate scoring deliberately refused to favour
+staying put, and the only thing defending a repeat was a 0.05 probability margin. So the chords
+changed every eight bars while the drums, bass, pad and figure were canned - variation in the
+stable layer, stasis in the expressive one.
+
+Three things changed:
+
+- **The schedule decides *that* the form moves; Jev decides *where*.** `HOLD_FORMS` in
+  `harmony.ts` says how many times the form plays before the next one is led from elsewhere. This
+  is the part that had to be measured rather than reasoned about. The first attempt asked Jev
+  *whether* to move, and Jev - told emphatically that holding is normal - answered **1.00 for
+  staying, every time**. It got worse before it got better: an earlier version also required a
+  change to beat staying put by `CHANGE_MARGIN`, and with a 1.00 answer to stay no margin above
+  zero can ever be cleared, so the form could not move *at all*. A gate that cannot open is not a
+  safeguard, it is a decision never to change. So the call now happens only when a move is due, and
+  the stay option is dropped before the question is asked, which leaves Jev answering the question
+  it is actually good at: which section should lead next.
+- **The variation moved into the playing.** The arrangement masks are two sections long rather
+  than one, so the second pass through a section enters and exits on different bars than the first.
+  Same form, different arrangement - which is what a band does to a chorus without changing the
+  chords.
+- **Announcement is part of predictability.** The decision is taken one full section before the
+  end, so there is a section of notice rather than the one bar there used to be.
+
+#### A phrase is a section, and the form is what you commit to
+
+Eight bars is not a form. It is a loop, and looping it is not the same as playing music - which is
+what the first attempt at this got wrong. The app had thirty-two good bars of material per style
+and played them one at a time, re-deciding every eight. The player had no idea what the next eight
+bars were, and that uncertainty is not a subtlety; it is the difference between playing along and
+guessing.
+
+So a phrase is now a **section**, and each style has a **form**: its sections in a fixed order,
+repeating. The whole of it is in the pattern, so the harmony is decided once and then played -
+there is no per-section rebuild and nothing to anticipate. `Style.form` is the order, and the form is
+treated as a cycle, so the last section leads back to the first.
+
+Both the length of a section and how many there are belong to the style, not to the app. A section
+is as long as its own music needs and a form is however many of those read as a piece: eight-bar
+sections and four of them for the four dance and jazz styles, thirty-two bars of AABA-shaped
+material; twelve-bar sections and three of them for the blues, because a blues chorus is twelve bars
+and cutting one down to eight to fit a constant was a compromise the fixed length was forcing. The
+generated `PatternPlan` carries `sectionBars` so the bar counter, the section strip, the drum cues
+and the notice before a change all read their positions from the music rather than from a number
+they share. `validate.ts` checks each style's own sections are a real phrase - even, at least four
+bars - rather than that they all match.
+
+Leading from any section is the same form entered further in, which is what `chartSections` builds.
+That is why a change is cheap and safe: whatever gets picked, the chart that follows is the style's
+own form, and every seam in it has already been checked.
+
+Two rules make a repeating form playable, and both are enforced at import.
+
+`assertChartFlows` requires every section's last bar to land somewhere the next section can
+follow, including the wrap. A tonic ending is always fine. A dominant ending is fine only when the
+next section opens on the tonic, because a dominant *promises* the tonic. A colour ending is fine
+when the next section opens on the tonic - the modal cadence - or on another colour chord, which is
+a modal step and the ordinary way one modal section follows another. A subdominant ending needs the
+tonic or the dominant. An earlier version asked whether a phrase could loop into *itself*; that was
+the right question while a phrase was the whole form, and the wrong one afterwards. Seven phrases
+had been written to "hand on" to whatever came next, which reads as purposeful only if something is
+actually coming.
+
+`assertEveryStyleHasAHome` requires exactly one section per style to open on the tonic, and
+`homeSequence` is how it is found. A session starts there and a style change lands there. That
+matters more than it sounds: three of the four sections in every style open on a chord that is not
+the tonic, and one of them - the minor two-five in after-hours - opens on the half-diminished two.
+Dropping a player onto that means they hear two bars of a chord with nothing to resolve to before
+they learn what key they are in. Those openings are worth having as *departures*; what was wrong was
+making one of them the entrance.
+
+The stage shows the whole form - four rows of eight bars, the section playing marked, the bars
+already played dimmed - and each candidate says which order it would lead, so the next thirty-two
+bars are readable rather than implied.
+
+#### Finding your place in thirty-two bars
+
+Reading the form is not the same as hearing it. Thirty-two bars is far too long to hold your place
+in by counting, and a player counting is a player not playing, so the arrangement has to say where
+you are. Two drum cues do it:
+
+| Cue | Where | What it is |
+|---|---|---|
+| `drums.fill` | the last bar of **every section** | a pickup on top of the groove - three added snares, or a rim and a snare |
+| `drums.turn` | the last bar of the **whole form** | toms and a crash, the only bar in the form where they are ever heard |
+
+Both are *added* to the bar rather than replacing it. That is what the user asked for - "similar beat
+but enhanced/changed enough to notice but not feel like it doesn't fit" - and it is also what makes a
+cue reliable: the groove never stops, so the cue can never be mistaken for a mistake. It is
+`.when(mask, x => x.superimpose(...))`, and at bar 32 both fire, so the top of the cycle is the
+busiest bar in the form.
+
+Two details make it work, and both were verified in the page rather than assumed:
+
+- **`when` fires on the last cycle of the group, not the first.** `when("<0 0 0 0 0 0 0 1>", f)`
+  applies on cycle 7, which is bar 8 - measured by querying the haps. (`every(8, f)` fires on cycle
+  0 instead, which would put the fill on bar 1.) The mask is one value per bar, so this is the same
+  absolute-cycle alignment the arrangement masks already rely on.
+- **The cue has to be warmed with the kit.** An unwarmed cue would arrive late the first time it
+  played - which is exactly the bar it exists to make audible - so `soundsToWarm` reads the cue
+  patterns too.
+
+`assertCuesAreDistinct` refuses a style whose two cues are the same pattern, because the whole
+value of the pair is that a section end and the top of the cycle do not sound alike. The cue sounds
+are drawn from the set every one of the five kits carries (`sd ht mt lt rim cp cr`), so a cue cannot
+be silently missing a sample.
+
+Measured on night-drive by querying the app's own emitted pattern over 40 bars: bars 8, 16, 24, 32
+and 40 each gain three snares, and `ht`, `mt`, `lt` and `cr` appear on **bar 32 only** - 37 events
+against 25-31 elsewhere.
 
 Choosing a phrase by hand works the same way. Clicking one does not cut the phrase that is
 playing short: the request is held and takes over at the wrap, so the bar strip keeps showing
@@ -238,7 +460,7 @@ sat in a permanent 3:2 polyrhythm. That is why the drums sounded "off from the a
 scheduling fault at all, but the figure playing triplets over straight beats. Only `syncopated`,
 with 8 slots, lined up.
 
-The fix was to move every rhythm onto the 16th grid. `music.ts` now asserts `16 % slots === 0`
+The fix was to move every rhythm onto the 16th grid. `validate.ts` now asserts `16 % slots === 0`
 at import, so a rhythm that would break the alignment cannot reach playback.
 
 ### The rhythm also picks the notes
@@ -249,7 +471,7 @@ and the first token is the chord's lowest note - the bass.
 
 That made the old `Drift` rhythm unusable in a way that was audible but not obvious: it sounded
 slots 0 and 4, so in every arpeggio mode it played the bass note, twice per bar, and in `Block`,
-`Rising` and `Broken` it played the *same* note twice. Measured across all four styles, four
+`Rising` and `Broken` it played the *same* note twice. Measured across four styles, four
 keys, two phrases per style and every figure mode, the bass note was in **68%** of its events -
 **60%** of the arpeggiated ones. It read as a doubled bass line, and because the chord layer
 stopped carrying any colour the mid-ground seemed to have been switched off. The pad was never
@@ -265,7 +487,10 @@ figure adds the movement between them.
 
 Harmony says what is happening. It does not say who is in the room, and until now every layer
 was in the room for all eight bars of every phrase, for ever. Each style now has an
-`arrangement`: one digit per bar, per decorative layer, saying which bars it plays in.
+`arrangement`: one digit per bar, per decorative layer, saying which bars it plays in. A mask is as
+long as a section and repeats with the form, so the gesture belongs to the section whatever its
+length; `validate.ts` requires the mask to divide the form and every section-window of it to
+contain something.
 
 Only the two decorative layers are listed, and that is the whole design. Dropping the drums,
 the bass or the pad for a bar does not read as an arrangement, it reads as a fault - and the pad
@@ -273,7 +498,9 @@ is what covers the hole the other two leave. So `night-drive` steps the figure o
 the percussion out for bar 8, which leaves the drums exposed for the turnaround; `broken-beat`
 holds the percussion until bar 2 and drops the figure for bar 7; `slow-bloom` states the figure at
 each end of the phrase and hands the middle to the pad, with the percussion arriving at bar 5;
-and `after-hours` drops the comping at bar 4 and the brushes for the last two bars.
+`after-hours` drops the comping at bar 4 and the brushes for the last two bars; and `blues` holds
+the percussion until bar 2 and drops the comping for the closing bar, which leaves the turnaround
+to the band.
 
 It is emitted as `.mask("<1 1 1 1 0 1 1 1>")`, one value per cycle, and one cycle is one bar.
 `mask` turned out to be exactly the right tool, and it is worth knowing why it is safe here: it
@@ -288,7 +515,7 @@ cycle, a mask whose bar 5 is a zero and a phrase whose bar 5 is a zero agree by 
 they keep agreeing while a phrase change is in flight. Measured on the chords layer over 17
 cycles: bar 5 came out at **0.00122** rms against **0.0115-0.0149** for the other seven bars, an
 11x drop, and that measurement ran straight through a live handoff from *Home cadence* to *Open
-room*. `music.ts` checks at import that every mask is one digit per bar, that it is only 0s and
+room*. `validate.ts` checks at import that every mask is one digit per bar, that it is only 0s and
 1s, and that it never silences a layer outright.
 
 A masked bar is not the same thing as a mute. The mute is the mixer, and you can take any layer
@@ -322,7 +549,7 @@ parameters describe, arriving when they say it should.
 
 The envelope needs a cutoff to move at all: superdough builds the filter chain only when `lpf` is
 set and ignores the envelope controls entirely without one, so a layer with an envelope and no
-cutoff is a static filter that looks like it should be moving. `music.ts` refuses at import to
+cutoff is a static filter that looks like it should be moving. `validate.ts` refuses at import to
 accept that combination rather than leaving it to be heard.
 
 **Timing and level are loose.** The drums and percussion land a few milliseconds either side of
@@ -367,7 +594,7 @@ A style is a closed arrangement, not a preset you can drift out of. Each one own
 phrases, its chord palette, its drum machine, its pad, its chord figure, its bass and its
 leads, and nothing is shared between them: not an instrument, not a drum kit, not a phrase.
 
-That is enforced rather than intended. `assertStyleIsolation()` in `music.ts` runs at import
+That is enforced rather than intended. `assertStyleIsolation()` in `validate.ts` runs at import
 and throws if any of these is true:
 
 - two styles use the same sound, in any role
@@ -395,15 +622,24 @@ The pads are the one part of the arrangement that is *not* a sample: they are fi
 oscillators - a saw bed for night drive, a square bed for broken beat, a triangle bed for slow
 bloom, and the quiet pipe organ for after-hours. A pad has to be there the moment the transport
 starts, and an oscillator needs nothing fetched, nothing decoded and no AudioWorklet, where a
-sample-map pad depends on all three. The figure stays on sample maps, which is what gives each
-style its own comping instrument.
+sample-map pad depends on all three. The figure normally stays on a sample map, which is what
+gives each style its own comping instrument.
+
+The blues opens the door that leaves: `pad-reed` and `pluck-glass` are the `user` waveform with a
+`partials` list each, so superdough builds their spectra out of the numbers instead of a fetch,
+and they are oscillators like the pads above. They are the only instruments in the catalogue that
+are synthesised outright rather than picked from a map, which is the style asking for a blues band
+that leans experimental. Both were measured before they were trusted: the reed bed at 0.103 rms
+and the pluck at 0.161, against 0.158 for a plain sine, so the additive route costs nothing in
+level. The spectrum belongs to the instrument rather than the style, so `s("user")` always emits
+the `partials` that make it a timbre instead of a warning.
 
 Because the candidates a style can move to are its own phrases, Jev cannot steer one style into
 another even in principle: the only ids it can answer with are that style's.
 
 ### Solo instruments
 
-Each style offers **its own five leads**, drawn from the twenty lead instruments in
+Each style offers **its own five leads**, drawn from the twenty-five lead instruments in
 `samples.ts`. No lead is used by a backing layer, no lead is shared with another style, and the
 pad and figure of a style are never on its lead list.
 
@@ -413,10 +649,11 @@ Leads come from two sources:
   pitch through `samples.ts`. Good for acoustic piano, harp, marimba, vibraphone and the
   world/plucked colours.
 - **General MIDI soundfonts** - `rhodes`, `jazz-guitar`, `clean-guitar`, `voice-oohs`,
-  `muted-trumpet`, `clarinet`, `flute`. These come from `@strudel/soundfonts`, and they are the
-  are the only source of guitars: there is no guitar in the CDN sample maps at all (`gtr`,
-  `guitar`, `epiano` and `strings` are all 404), which is why the palette reaches for this
-  family.
+  `muted-trumpet`, `clarinet`, `flute`, and the blues' `harmonica`, `overdriven-guitar`,
+  `electric-guitar-muted`, `guitar-harmonics` and `lead-2-sawtooth`. These come from
+  `@strudel/soundfonts`, and they are the only source of guitars: there is no guitar in the CDN
+  sample maps at all (`gtr`, `guitar`, `epiano` and `strings` are all 404), which is why the
+  blues - a guitar idiom - is the style that reaches furthest into this family.
 
 **The lead never doubles the chord figure's instrument, by construction.** The two are drawn
 from pools that cannot overlap, so `slow-bloom` plays psaltery figures under a harp lead and
@@ -551,7 +788,7 @@ One caveat from the local environment, and it is not harmless: Strudel logs `Fai
 ```text
 React UI
   |-- session controls + visible musical choices
-  |-- Strudel adapter  -> domain/music.ts pattern builder -> evaluate()
+  |-- Strudel adapter  -> domain/pattern.ts pattern builder -> evaluate()
   |-- MIDI adapter     -> requestMIDIAccess -> note/pedal snapshot
   `-- Jev client (/api/decision)
           |
@@ -560,7 +797,7 @@ React UI
                     `-- TypeSafeClient.systemOne
 ```
 
-The browser never receives the TypeSafe API key. Jev receives structured state and `choice` questions, never a prompt asking for text or executable Strudel code. Responses are validated against the local allowlists in `src/domain/music.ts` before they affect the UI or audio.
+The browser never receives the TypeSafe API key. Jev receives structured state and `choice` questions, never a prompt asking for text or executable Strudel code. Responses are validated against the local allowlists in `src/domain/vocabulary.ts`, `chords.ts`, `figures.ts` and `styles.ts` before they affect the UI or audio.
 
 ## Important Contracts
 
@@ -686,7 +923,7 @@ Pitfalls this project already accounts for:
 
 - `evaluate(code)` autoplays by default (`evaluate(code, autoplay = true)` calls `repl.setPattern(..., true)`), so a trailing `.play()` double-schedules the pattern.
 - Use `note(...)`, never `n(...)`, to set pitch on a synth sound. Superdough resolves synth harmonics from `partials ?? n`, so `n("c3 e3 g3").s("sawtooth")` feeds a non-numeric string into `new Float32Array(value)`, producing a zero-length array and throwing `createPeriodicWave: The length of the real array provided (1) is less than the minimum bound (2)`. `n()` is for sample selection and scale degrees; `note()` sets frequency.
-- The only synth sounds registered by `@strudel/web` are `sine`, `triangle`, `square`, `sawtooth`, `user` and `one` (plus the `sin`/`tri`/`sqr`/`saw` aliases). `user` requires `.partials([...])` or it warns and falls back to a triangle. Instrument palettes are built from these sounds only - `s("bd")`-style drum names would need `samples(...)` and a network fetch at startup.
+- The only synth sounds registered by `@strudel/web` are `sine`, `triangle`, `square`, `sawtooth`, `user` and `one` (plus the `sin`/`tri`/`sqr`/`saw` aliases). `user` requires `.partials([...])` or it warns and falls back to a triangle - which is why the blues' two additive instruments carry a `partials` list on the instrument rather than on the style, so the call cannot be forgotten at the call site. Instrument palettes are built from these sounds only - `s("bd")`-style drum names would need `samples(...)` and a network fetch at startup.
 - `.cps()` on the outer pattern changes the running tempo, which is how the Tempo slider takes effect (`cps = bpm / 240`).
 
 ## Next Steps

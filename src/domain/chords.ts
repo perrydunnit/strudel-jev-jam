@@ -72,6 +72,46 @@ export function openingChord(sequence: Sequence): ChordId {
   return typeof bar === 'string' ? bar : bar[0]
 }
 
+/** The chord a sequence closes on - the other end of the seam when the phrase repeats. */
+export function closingChord(sequence: Sequence): ChordId {
+  const bar = sequence.bars[sequence.bars.length - 1]
+  return typeof bar === 'string' ? bar : bar[bar.length - 1]
+}
+
+/**
+ * The harmonic function a chord serves.
+ *
+ * This lives here rather than in `harmony.ts`, where it is used, because `validate.ts` needs
+ * it too and `validate.ts` must not import anything that imports the style tables - the whole
+ * point of that module is that the tables are arguments to it, so it can never take part in
+ * an import cycle. `chords.ts` is a leaf, so both can depend on it.
+ */
+export type ChordRole = 'tonic' | 'subdominant' | 'dominant' | 'colour'
+export const CHORD_ROLES: Record<ChordId, ChordRole> = {
+  i: 'tonic',
+  i7: 'tonic',
+  imaj7: 'tonic',
+  // The cadential 64 is dominant in function: it is a suspension over the dominant's bass.
+  i64: 'dominant',
+  III: 'colour',
+  iv: 'subdominant',
+  iv7: 'subdominant',
+  IV: 'subdominant',
+  'ii\u00f87': 'subdominant',
+  V: 'dominant',
+  V7: 'dominant',
+  V7sus4: 'dominant',
+  'V7/iv': 'dominant',
+  VI: 'colour',
+  VII: 'colour',
+  VII7: 'dominant',
+  bII: 'colour',
+}
+
+export function chordRole(id: ChordId): ChordRole {
+  return CHORD_ROLES[id] ?? 'colour'
+}
+
 /** The opening chord of a sequence, e.g. for colour-coding it in the UI. */
 export function firstChord(sequence: Sequence): Chord {
   return findChord(openingChord(sequence))

@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
 import { findInstrument } from './domain/samples'
-import { defaultSelection, findSequence, findStyle } from './domain/styles'
+import { defaultSelection, findStyle, homeSequence, chartSections } from './domain/styles'
 import { buildPattern } from './domain/pattern'
-import type { Handoff, Selection } from './domain/vocabulary'
-import { nextChordCandidates, sequenceChords } from './domain/harmony'
+import { type Handoff, type Selection } from './domain/vocabulary'
+import { HOLD_FORMS, nextChordCandidates, sequenceChords } from './domain/harmony'
 import { createStrudelPlayer } from './audio/strudelPlayer'
 import { createLiveVoice } from './audio/liveVoice'
 import { KEY_ANALYSER } from './audio/voiceViews'
@@ -109,8 +109,14 @@ function App() {
   const appliedCode = useRef<string | null>(null)
   const pending = useRef(false)
   const pinnedRef = useRef(pinned)
-  /** Phrases kept in a row, so a long stay can be weighed against variety. */
-  const repeats = useRef(0)
+  /**
+   * Forms played since the current one started leading. This is the schedule, so it has to advance
+   * on every wrap rather than on every moved form: a form that is not yet due commits no handoff,
+   * so counting handoffs would mean it never came due and the music would never move at all.
+   */
+  const passes = useRef(0)
+  /** The same number as state, because the stage has to be able to say how long it has held. */
+  const [heldCount, setHeldCount] = useState(0)
   /** Cycle number we already asked about, so each sequence is asked about once. */
   const askedCycle = useRef<number | null>(null)
   /** The cycle whose wrap has already been handled, so a wrap fires once and not per tick. */
@@ -189,14 +195,21 @@ function App() {
     pending.current = true
     try {
       const asked = selectionRef.current
-      const phrase = findSequence(asked.style, asked.sequence)
-      const recent = sequenceChords(phrase.bars).slice(-3)
+      const askedStyle = findStyle(asked.style)
+      // The chords leading into the decision are the end of the form, not the end of a section:
+      // whatever the next form opens on has to answer where this one finished, and a section
+      // ending on the tonic is only informative once the whole chart has been accounted for.
+      const recent = sequenceChords(chartSections(askedStyle, asked.sequence).flatMap((section) => section.bars)).slice(-3)
+      // Staying is deliberately not on the menu. This call only happens because the form is due to
+      // move, and a model asked whether to move answers no - asked with staying offered, Jev
+      // returned 1.00 for it every time. The question is where the next form is led from.
       const candidates = nextChordCandidates(asked.style, asked.sequence, recent, asked.key)
+        .filter((candidate) => !candidate.repeat)
       const response = await requestDecision({
         ...context.current,
         currentSequence: asked.sequence,
         recentChords: recent,
-        repeatCount: repeats.current,
+        repeatCount: passes.current,
         candidates,
       })
       setLastDecision(response)
@@ -204,16 +217,10 @@ function App() {
       // The style may have moved on while this was in flight, and then the answer is about a
       // phrase that no longer exists. Nothing is applied from it.
       if (selectionRef.current.style !== asked.style || !asking.current) return
-      // Picking a phrase is a low-stakes taste decision, so a flat distribution is not a
-      // reason to refuse it. The policy added here is stability: move only when the winner has
-      // a clear edge over staying put, since a tie carries no mandate to change. Every
-      // candidate is a real phrase, so either way the music stays valid.
-      const staying = candidates.find((candidate) => candidate.repeat)
-      const winnerShare = response.sequenceProbabilities[response.sequence] ?? 0
-      const stayShare = staying ? response.sequenceProbabilities[staying.id] ?? 0 : 0
-      const chosen = staying && response.sequence !== staying.id && winnerShare - stayShare < 0.05
-        ? staying.id
-        : response.sequence
+      // No gate on the answer. The schedule has already decided the form moves, so picking where
+      // it moves from is exactly the taste question Jev is good at - and every option is a real
+      // form, so the answer cannot be wrong, only a different choice.
+      const chosen = response.sequence
       // Waiting for the bar line to hand the program over is what made a change arrive late,
       // so it is handed over now. The program keeps the phrase playing and places the new one
       // after it, so the change still lands on the bar line - it just no longer depends on
@@ -240,9 +247,11 @@ function App() {
   // rebuild is inaudible because the handoff already places that phrase at this cycle.
   const commitHandoff = useCallback(() => {
     const next = handoffRef.current
-    if (!next) return
     setPendingHandoff(null)
-    repeats.current = next.to === selectionRef.current.sequence ? repeats.current + 1 : 0
+    // One more form played. A form that moved starts counting again from zero.
+    passes.current = next && next.to !== selectionRef.current.sequence ? 0 : passes.current + 1
+    setHeldCount(passes.current)
+    if (!next) return
     setDirectionSource(next.source)
     setSelection((current) => ({
       ...current,
@@ -251,18 +260,28 @@ function App() {
     }))
   }, [])
 
+  // How much notice the player gets before the form moves: one section of the one playing, and a
+  // section is as long as its own music - eight bars or twelve - so it is read off the plan rather
+  // than shared as a number.
+  const noticeBars = plan.sectionBars[plan.sectionBars.length - 1] ?? plan.bars.length
+
   // Strudel's own scheduler position drives the bar counter, so the decision lands
   // on the bar line instead of on a wall-clock guess.
   useEffect(() => {
     if (!isPlaying) return
+    // The bar playback started on is not a completed form, so the first wrap is the one after it.
+    wrappedCycle.current = player.cycleNow()
     const id = window.setInterval(() => {
       const bars = plan.bars.length
       const cycle = player.cycleNow()
       const index = ((cycle % bars) + bars) % bars
       setBarIndex(index)
-      // Ask exactly once per sequence, one bar early so a slow answer still lands before
-      // the wrap. Without the cycle guard this fired on every tick of that bar.
-      if (index === Math.max(0, bars - 2) && asking.current && askedCycle.current !== cycle) {
+      // Ask once per form, one section before the end, and only when the form is due to move.
+      // A whole section of notice is the point: the form is what the player is committing to, so
+      // they should know which one comes next while there is still a section of this one to play.
+      // The answer is handed over as soon as it arrives and still lands on the bar line.
+      const due = passes.current >= HOLD_FORMS - 1
+      if (due && index === Math.max(0, bars - noticeBars) && asking.current && askedCycle.current !== cycle) {
         askedCycle.current = cycle
         void askJev()
       }
@@ -272,7 +291,7 @@ function App() {
       }
     }, 200)
     return () => window.clearInterval(id)
-  }, [isPlaying, plan.bars.length, player, askJev, commitHandoff])
+  }, [isPlaying, plan.bars.length, noticeBars, player, askJev, commitHandoff])
 
   // Fetch the arrangement's samples up front so nothing waits on the network.
   useEffect(() => {
@@ -332,19 +351,21 @@ function App() {
     }
 
     if (midiState.status === 'idle') void midi.connect()
-    if (asking.current) await askJev()
+    // No ask here: the form is not due to move until it has played, and asking now would only
+    // produce an answer about a form that has not been heard yet.
   }
 
   // A style is self-contained, so picking one also switches to its own first phrase and
   // its own lead: neither exists in the style being left.
   const chooseStyle = (id: Selection['style']) => {
     const next = findStyle(id)
-    repeats.current = 0
+    passes.current = 0
+    setHeldCount(0)
     // Any change on its way in names a phrase from the style being left, so it cannot survive.
     setPendingHandoff(null)
     setDirectionSource('local')
     setLastDecision(null)
-    update({ style: id, sequence: next.sequences[0].id, solo: next.solo })
+    update({ style: id, sequence: homeSequence(next).id, solo: next.solo })
   }
 
   // Asking for a phrase does not cut the one playing short. The program is rebuilt straight
@@ -411,7 +432,7 @@ function App() {
       <section className="intro">
         <p className="eyebrow">A responsive musical second mind</p>
         <h1>Make a little<br /><em>room for surprise.</em></h1>
-        <p className="lede">Set the atmosphere, play a phrase, and let Jev choose where the next bar wants to go.</p>
+        <p className="lede">Set the atmosphere, settle into a form, and let Jev decide when it is worth moving on.</p>
       </section>
 
       <section className="workspace" aria-label="Jam controls">
@@ -450,6 +471,7 @@ function App() {
             jevEnabled,
             pinned,
             lastDecision,
+            heldCount,
             selection,
             style,
             heard,

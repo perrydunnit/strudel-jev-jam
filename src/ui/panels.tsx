@@ -11,9 +11,10 @@
 import { findInstrument } from '../domain/samples'
 import { arps, rhythms } from '../domain/figures'
 import { chordSymbol, firstChord, keys } from '../domain/chords'
-import { findSequence, findStyle, styles } from '../domain/styles'
-import type { PatternPlan } from '../domain/pattern'
+import { findSequence, findStyle, homeSequence, chartSections, styles } from '../domain/styles'
 import { chordModes, LAYER_ORBITS, type LayerId, type Selection, type SequenceId, type Style } from '../domain/vocabulary'
+import { HOLD_FORMS } from '../domain/harmony'
+import type { PatternPlan } from '../domain/pattern'
 import type { StrudelPlayer } from '../audio/strudelPlayer'
 import { LEAD_LEVEL_RANGE } from '../audio/liveVoice'
 import { noteName, type MidiSnapshot, type MidiState } from '../midi/midiHandler'
@@ -112,6 +113,8 @@ export type StageState = {
   jevEnabled: boolean
   pinned: { sequence: boolean; rhythm: boolean }
   lastDecision: DecisionResponse | null
+  /** How many times in a row the phrase has already come round, so the stage can say so. */
+  heldCount: number
   selection: Selection
   style: Style
   heard: string[]
@@ -153,10 +156,20 @@ function PartControls({ id, name, mixer }: { id: LayerId; name: string; mixer: M
 }
 
 export function DecisionStage({ state, actions }: { state: StageState; actions: StageActions }) {
-  const { plan, barIndex, pendingSequence, directionSource, jevEnabled, pinned, lastDecision, selection, style, heard, isPlaying, player, mixer } = state
+  const { plan, barIndex, pendingSequence, directionSource, jevEnabled, pinned, lastDecision, heldCount, selection, style, heard, isPlaying, player, mixer } = state
+  const held = heldCount + 1
+  const home = homeSequence(style).id
+  // The form is what the player is committed to, so the strip shows all of it, in rows of one
+  // section each, with where they are in it. The rows are as long as the sections are - a twelve-bar
+  // blues gets a twelve-bar row - so the strip is the form rather than a grid it was poured into.
+  const lengths = plan.sectionBars
+  const starts = lengths.reduce<number[]>((ends, count) => [...ends, ends[ends.length - 1] + count], [0])
+  const sections = lengths.map((_, index) => plan.bars.slice(starts[index], starts[index + 1]))
+  const playing = lengths.findIndex((_, index) => barIndex < starts[index + 1])
+  const at = playing === -1 ? Math.max(0, lengths.length - 1) : playing
   const eyebrow = pendingSequence
     ? `Queued \u00b7 ${findSequence(selection.style, pendingSequence).label} takes over at the end of this phrase`
-    : `${!jevEnabled ? 'Jev paused' : directionSource === 'jev' ? 'Jev chose' : 'Your call'} \u00b7 ${plan.sequenceLabel}`
+    : `${!jevEnabled ? 'Jev paused' : pinned.sequence ? 'Your call' : directionSource === 'jev' ? 'Jev chose' : 'Holding'} · ${plan.sequenceLabel} · ${held === 1 ? 'first pass' : `pass ${held}`}`
 
   return (
     <div className="decision-stage">
@@ -172,10 +185,23 @@ export function DecisionStage({ state, actions }: { state: StageState; actions: 
       </div>
 
       <div className="bar-strip">
-        {plan.bars.map((bar, index) => (
-          <span className={index === barIndex ? 'bar-chip active' : 'bar-chip'} key={`${index}-${bar.chordLabel}`}>
-            <small>{index + 1}</small><strong>{bar.chordLabel}</strong>
-          </span>
+        {sections.map((group, groupIndex) => (
+          <div
+            className={groupIndex === at ? 'bar-row active' : 'bar-row'}
+            key={`section-${groupIndex}`}
+            style={{ gridTemplateColumns: `18px repeat(${group.length}, minmax(0, 1fr))` }}
+          >
+            <span className="bar-row-label">{groupIndex + 1}</span>
+            {group.map((bar, offset) => {
+              const index = starts[groupIndex] + offset
+              const state = index === barIndex ? 'bar-chip active' : index < barIndex ? 'bar-chip played' : 'bar-chip'
+              return (
+                <span className={state} key={`${index}-${bar.chordLabel}`}>
+                  <small>{index + 1}</small><strong>{bar.chordLabel}</strong>
+                </span>
+              )
+            })}
+          </div>
         ))}
       </div>
 
@@ -184,7 +210,7 @@ export function DecisionStage({ state, actions }: { state: StageState; actions: 
           <div className={mixer.audible(layer.id) ? 'layer' : 'layer silenced'} key={layer.id}>
             <span className="layer-name">{layer.name}</span>
             <span className="layer-detail">{layer.detail}</span>
-            <code className="layer-notes"><b>{layer.id}</b> {layer.notes}</code>
+            <code className="layer-notes"><b>{layer.id}</b> {layer.sectionNotes[at] ?? layer.notes}</code>
             <VoiceCanvas view={VOICE_VIEWS[layer.id]} orbit={LAYER_ORBITS[layer.id as Exclude<LayerId, 'solo'>]} player={player} playing={isPlaying} />
             <PartControls id={layer.id} name={layer.name} mixer={mixer} />
           </div>
@@ -208,19 +234,19 @@ export function DecisionStage({ state, actions }: { state: StageState; actions: 
             onClick={() => actions.chooseSequence(option.id)}
           >
             <span className="decision-index">0{index + 1}</span>
-            <span className="decision-copy"><strong>{option.label}</strong><small>opens on {chordSymbol(firstChord(option), selection.key)} \u00b7 {option.effect}</small></span>
+            <span className="decision-copy"><strong>{option.label}</strong>{home === option.id && <em className="home-tag">home</em>}<small>opens on {chordSymbol(firstChord(option), selection.key)} · {option.effect}</small><small className="decision-order">form · {chartSections(style, option.id).map((part) => part.label).join(' → ')}</small></span>
             <span className="decision-mark" style={{ backgroundColor: firstChord(option).color }} />
           </button>
         ))}
       </div>
-      <p className="hint">{style.label} owns these {style.sequences.length} phrases and nothing outside them. One bar before the end, code proposes the next chords and Jev picks by vibe. Choosing a phrase yourself takes over at the end of the one playing, never mid-phrase - the strip keeps showing what you are hearing until then. Click it again to hand control back to Jev.</p>
+      <p className="hint">{style.label} owns these {style.sequences.length} sections and nothing outside them, and plays them as one form of {plan.sectionBars.reduce((total, count) => total + count, 0)} bars that repeats. Sections are as long as the music needs - eight bars for a dance phrase, twelve for the blues - and each row of the strip above is one of them. The one marked <em className="home-tag">home</em> opens on the tonic, which is where a session starts and where a style change lands - leading from any other section is the same form entered further in. The form plays {HOLD_FORMS} times and then Jev leads the next one from a different section, so there is a stretch you can rely on and then a move. Clicking a section leads the next form from there - it takes over at the end of the one playing, never mid-form.</p>
       {lastDecision && (
         <p className="decision-note">
           Jev ranked {topOptions(lastDecision.sequenceProbabilities).join(' · ')}
           {lastDecision.model ? ` · ${lastDecision.model}` : ''}
           {lastDecision.usage ? ` · ${lastDecision.usage.input_tokens + lastDecision.usage.output_tokens} tokens` : ''}
           <br />
-          Candidates are generated and validated in code from this style's own phrases, scored by how each opening chord continues the chords just played. Confidence is how concentrated each answer was: {lastDecision.sequenceConfidence.toFixed(2)} on the next chord and {lastDecision.rhythmConfidence.toFixed(2)} on the rhythm. A flat split is normal for a taste decision and does not block it.
+          Candidates are generated and validated in code from this style's own sections, and each option names the form it would lead. Confidence is how concentrated each answer was: {lastDecision.sequenceConfidence.toFixed(2)} on the form and {lastDecision.rhythmConfidence.toFixed(2)} on the rhythm. When the form moves is the schedule's decision, not the model's - asking a model whether to move just gets you "no" - so staying is not offered when a move is due and the answer is always a destination.
         </p>
       )}
     </div>

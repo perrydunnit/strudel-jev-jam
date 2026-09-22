@@ -20,10 +20,10 @@ const chordIds = new Set<string>(chords.map((chord) => chord.id))
 
 /** What an opening chord implies about when its phrase fits, from its harmonic function. */
 const WHEN_BY_ROLE: Record<string, string> = {
-  tonic: 'The music wants to settle, or the player has just resolved something.',
-  subdominant: 'The phrase should open up rather than close. Strong after the tonic.',
-  dominant: 'The next phrase should arrive with a push. Strong after a subdominant.',
-  colour: 'A change of colour matters more than resolution here.',
+  tonic: 'If the music should move at all: the music wants to settle, or the player has just resolved something.',
+  subdominant: 'If the music should move at all: the phrase should open up rather than close. Strong after the tonic.',
+  dominant: 'If the music should move at all: the next phrase should arrive with a push. Strong after a subdominant.',
+  colour: 'If the music should move at all: a change of colour matters more than resolution here.',
 }
 
 const rhythmOptions = {
@@ -108,7 +108,7 @@ const server = createServer(async (request, response) => {
         {
           what: `Opens on ${candidate.symbol}. ${candidate.effect}`,
           when: candidate.repeat
-            ? 'The exception, not the default: only when the phrase is still building or the player is clearly settled inside it.'
+            ? 'The form stays as it is: the same cycle entered at the same point.'
             : WHEN_BY_ROLE[chordRole(candidate.chord as ChordId)],
         },
       ]),
@@ -129,9 +129,9 @@ const server = createServer(async (request, response) => {
         // Instructions carry the whole question; nested state is referenced by path.
         next: choice(
           {
-            question: 'The phrase playing now is one bar from its end. Which next chord should follow it?',
-            focus: 'The key is `key`. The chords leading into this decision are `chordsLeadingIn`, oldest first, and each option opens on the chord it would start. Judge which move fits the moment in `style`, whose character is `character`. After `timesRepeated` phrases in a row, a change is the default answer and repeating is the exception, unless the player is clearly settled inside the phrase - a jam partner that loops one phrase is not steering.',
-            note: 'Every option is a phrase this style already owns, so all of them are musically valid. This is a taste decision about the vibe, not a correctness one.',
+            question: 'The form has played through and is due to move on. Which section should lead the next form?',
+            focus: 'The key is `key`. The chords leading into this decision are `chordsLeadingIn`, oldest first, and each option opens on the chord it would start. The form is a cycle of `style`\'s own sections, so every option is the same music entered at a different point: this is a question about where the next form begins, not about whether to change. `timesRepeated` is how many times the form has just played. Judge which section this moment wants to arrive on, from `chordsLeadingIn`, from what is playing now and from `midi`.',
+            note: 'Every option is a form this style already owns, so all of them are musically valid. This is a taste decision about the vibe, not a correctness one.',
           },
           nextOptions,
         ),

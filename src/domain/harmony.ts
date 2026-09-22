@@ -1,4 +1,4 @@
-import { chordSymbol, findChord, openingChord } from './chords'
+import { chordRole, chordSymbol, findChord, openingChord } from './chords'
 import { findStyle } from './styles'
 import type { ChordId, KeyId, SequenceId, StyleId } from './vocabulary'
 
@@ -12,49 +12,43 @@ import type { ChordId, KeyId, SequenceId, StyleId } from './vocabulary'
  * them by vibe - it never invents a chord, and it cannot reach music the style does
  * not own.
  *
- * The functional model is the three functions of tonal harmony (mc-harmony):
- * tonic, subdominant and dominant, with the modal chords as colour. A dominant wants
- * the tonic, a subdominant wants the dominant, a tonic wants to leave home.
+ * The functional model is the three functions of tonal harmony (mc-harmony): tonic,
+ * subdominant and dominant, with the modal chords as colour. A dominant wants the tonic,
+ * a subdominant wants the dominant, a tonic wants to leave home. The table itself lives in
+ * `chords.ts` so that `validate.ts` can check a phrase's seam against it without importing
+ * this module, which would be a cycle.
  */
-
-type Role = 'tonic' | 'subdominant' | 'dominant' | 'colour'
-
-const ROLES: Record<ChordId, Role> = {
-  i: 'tonic',
-  i7: 'tonic',
-  imaj7: 'tonic',
-  // The cadential 64 is dominant in function: it is a suspension over the dominant's bass.
-  i64: 'dominant',
-  III: 'colour',
-  iv: 'subdominant',
-  iv7: 'subdominant',
-  IV: 'subdominant',
-  'iiø7': 'subdominant',
-  V: 'dominant',
-  V7: 'dominant',
-  V7sus4: 'dominant',
-  'V7/iv': 'dominant',
-  VI: 'colour',
-  VII: 'colour',
-  VII7: 'dominant',
-  bII: 'colour',
-}
 
 /** How well `next` follows `last`. Higher is a more expected continuation. */
 function fit(last: ChordId | undefined, next: ChordId): number {
   if (!last) return 0
-  const from = ROLES[last]
-  const to = ROLES[next]
+  const from = chordRole(last)
+  const to = chordRole(next)
   if (from === 'dominant') return to === 'tonic' ? 3 : to === 'colour' ? 1 : 0
   if (from === 'subdominant') return to === 'dominant' ? 3 : to === 'tonic' ? 1 : 0
   if (from === 'tonic') return to === 'subdominant' ? 3 : to === 'colour' ? 2 : to === 'dominant' ? 1 : 0
   return to === 'tonic' ? 2 : to === 'dominant' ? 2 : 1
 }
 
-/** The harmonic function a chord serves. Exported so the proxy can describe a move. */
-export function chordRole(id: ChordId): Role {
-  return ROLES[id] ?? 'colour'
-}
+/** The harmonic function a chord serves. Re-exported so the proxy can describe a move. */
+export { chordRole }
+
+/**
+ * How many times the form plays before the next one is led from a different section.
+ *
+ * The form is what the player commits to, so the *schedule* is what makes the music predictable:
+ * this many plays, then a new lead. Deciding that a move happens is not a judgement call, and
+ * treating it as one is how this app ended up frozen - asked whether to move, Jev answered 1.00
+ * for staying, every single time, so the harmony call fired once a form and never did anything.
+ *
+ * What *is* a judgement call is where the form is led from next, and that is the question Jev is
+ * asked: staying is dropped from the options at the point a move is due, so the answer is always
+ * a real destination.
+ *
+ * The destination is a rotation of the same cycle, so every form is the same sections in the same
+ * relative order. The band always knows the material; all that moves is which section leads.
+ */
+export const HOLD_FORMS = 2
 
 export type Candidate = {
   /** The sequence this candidate would play. */
@@ -74,9 +68,12 @@ export type Candidate = {
  * Three or four next chords for Jev to rank, each with the phrase it would start.
  *
  * Candidates are drawn from the style's own sequences, scored by how well their
- * opening chord continues the chords just played. The phrase that just finished is
- * always among them, so "keep going" is never silently removed from the choice, and
- * no two candidates open on the same chord because no style has two sequences that do.
+ * opening chord continues the chords just played. No two candidates open on the same chord,
+ * because no style has two sequences that do.
+ *
+ * The phrase that just finished is among them, so "keep going" is a real option here. It is the
+ * *caller* that drops it, and only at the point a move is due - choosing when the form moves is a
+ * schedule, and choosing where it moves is the taste decision this function exists to serve.
  */
 export function nextChordCandidates(
   styleId: StyleId,
@@ -91,10 +88,11 @@ export function nextChordCandidates(
   const scored = style.sequences.map((sequence) => {
     const opening = openingChord(sequence)
     const repeat = sequence.id === current
-    // Deliberately no bonus for staying put. A phrase that loops well resolves into its
-    // own opening, so its opening chord already fits better than most - adding to that
-    // would make "again" the top candidate by rule and quietly turn Jev's choice into a
-    // formality.
+    // No bonus for staying put: a phrase that loops well resolves into its own opening, so its
+    // opening chord already fits better than most and it is returned first regardless. Scoring it
+    // as well would be double counting. When the form moves is `HOLD_FORMS`' business, not this
+    // ranking's, and at the point it moves the stay candidate is dropped before the question is
+    // even asked.
     return { sequence, opening, repeat, score: fit(last, opening) }
   })
 

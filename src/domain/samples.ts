@@ -49,6 +49,12 @@ export type Instrument = {
    * decoded and no AudioWorklet, where a sample-map pad depends on all three.
    */
   synth?: string
+  /**
+   * Harmonic amplitudes for the `user` waveform, index 0 being the fundamental. This is how an
+   * instrument gets a spectrum of its own with nothing to fetch: superdough builds a
+   * PeriodicWave from the list, and warns and falls back to a triangle without one.
+   */
+  partials?: number[]
   /** Recorded range, in MIDI notes. Outside it the pitch is stretched. */
   range: [number, number]
 }
@@ -72,8 +78,8 @@ const soundfont = (
 
 const oscillator = (
   id: InstrumentId, label: string, description: string, group: InstrumentGroup,
-  role: InstrumentRole, synth: string, range: [number, number],
-): Instrument => ({ id, label, description, group, role, synth, range })
+  role: InstrumentRole, synth: string, range: [number, number], partials?: number[],
+): Instrument => ({ id, label, description, group, role, synth, range, partials })
 
 /**
  * Every instrument the app can play, grouped by role.
@@ -108,6 +114,12 @@ export const instruments: Instrument[] = [
   soundfont('clarinet', 'Clarinet', 'woody reed, low register', 'Wind', 'solo', 'gm_clarinet', [50, 88]),
   soundfont('muted-trumpet', 'Muted trumpet', 'tight, brassy jazz lead', 'Wind', 'solo', 'gm_muted_trumpet', [55, 84]),
   sampled('sax', 'Sax', 'reedy tenor sax', 'Wind', 'solo', 'sax', [44, 76]),
+  soundfont('harmonica', 'Harmonica', 'reedy and raw, the blues voice', 'Wind', 'solo', 'gm_harmonica', [60, 88]),
+  soundfont('overdriven-guitar', 'Overdriven guitar', 'valve amp, biting and mid-forward', 'Electric', 'solo', 'gm_overdriven_guitar', [40, 88]),
+  soundfont('muted-guitar', 'Muted guitar', 'palm-muted, clipped and funky', 'Electric', 'solo', 'gm_electric_guitar_muted', [40, 88]),
+  soundfont('guitar-harmonics', 'Guitar harmonics', 'bell-like overtones, the blues trick', 'Electric', 'solo', 'gm_guitar_harmonics', [40, 88]),
+  // The one outright synth lead, so a style can lean experimental when the mood calls for it.
+  soundfont('saw-lead', 'Saw lead', 'analogue sawtooth lead, thin and cutting', 'Electric', 'solo', 'gm_lead_2_sawtooth', [36, 88]),
 
   // --- Backing (pads and figures) -------------------------------------------
   // The pads are oscillators: a pad layer must never be the thing that is missing.
@@ -119,12 +131,18 @@ export const instruments: Instrument[] = [
   sampled('psaltery', 'Psaltery', 'plucked zither, quick decay', 'Plucked', 'backing', 'psaltery_pluck', [48, 88]),
   sampled('balafon', 'Balafon', 'wooden bars, dry and short', 'Mallet', 'backing', 'balafon', [48, 84]),
   sampled('pipeorgan_quiet', 'Quiet organ', 'soft drawbar bed', 'Acoustic', 'backing', 'pipeorgan_quiet', [36, 84]),
+  // Additive rather than a fixed waveform: superdough builds these two from `partials`, so
+  // they are oscillators - nothing to fetch, nothing to decode, no worklet - but with a
+  // spectrum of their own instead of one of the four built-in shapes.
+  oscillator('pad-reed', 'Reed bed', 'additive reed tone, drawbar-like', 'Electric', 'backing', 'user', [36, 84], [1, 0.6, 0.45, 0.55, 0.2, 0.3, 0.12, 0.18]),
+  oscillator('pluck-glass', 'Glass pluck', 'hollow additive pluck, short and dry', 'Electric', 'backing', 'user', [48, 88], [1, 0.1, 0.45, 0.08, 0.3, 0.06, 0.16]),
 
   // --- Bass -----------------------------------------------------------------
   soundfont('bass-pick', 'Pick bass', 'electric bass, plectrum', 'Electric', 'bass', 'gm_electric_bass_pick', [28, 60]),
   soundfont('bass-finger', 'Finger bass', 'electric bass, fingers', 'Electric', 'bass', 'gm_electric_bass_finger', [28, 60]),
   soundfont('bass-synth', 'Synth bass', 'round analogue sub', 'Electric', 'bass', 'gm_synth_bass_1', [24, 60]),
   soundfont('bass-upright', 'Upright bass', 'acoustic double bass', 'Acoustic', 'bass', 'gm_acoustic_bass', [24, 60]),
+  soundfont('bass-synth-2', 'Saw bass', 'bright analogue synth bass', 'Electric', 'bass', 'gm_synth_bass_2', [24, 60]),
 ]
 
 export function findInstrument(id: InstrumentId): Instrument {
