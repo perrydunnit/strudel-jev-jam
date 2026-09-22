@@ -9,7 +9,7 @@ Working end to end:
 - React + TypeScript + Vite app shell.
 - Each style is a full arrangement built from real samples: a drum pattern from a classic drum machine, a bass line, and a chord layer that can be pads, an arpeggiated figure, or both.
 - Music moves in **sequences**: four phrases per style, every one of them eight bars. Jev decides at the end of each one whether to repeat it or move on, using your MIDI activity and the recent sequence history. A sequence is never swapped mid-bar, and a change is never heard late: see *Sequences* below.
-- A **mixer** in the layer list: every part has a mute and a solo button, and silencing one is a gain change on that part's own bus, so it takes effect on the note already ringing and leaves the phrase running.
+- A **mixer** in the layer list: every part has a mute, a solo and a level, and changing any of them is a gain change on that part's own bus, so it takes effect on the note already ringing and leaves the phrase running.
 - Every phrase has a **shape**. The percussion and the chord figure enter and leave on their own bar schedule, so the arrangement breathes instead of running all five layers from bar 1 to bar 8; the drums, bass and pad never drop out. See *The phrase has a shape* below.
 - Nothing sits exactly on the grid. The bass, pad and chord figure have **moving filters**, and the drums, percussion, bass and figure vary their timing and their level hit to hit. See *Nothing sits exactly on the grid* below.
 - Jev can be **switched off** entirely. With it off nothing is sent, the phrase repeats, and only your own choices move the music.
@@ -116,7 +116,7 @@ because the ear found the one it missed before the code did.
 
 The same analysis was then run over all twenty sequences - halves side by side, positional repeats,
 a rotation of the first half, a dominant at the midpoint that fails to resolve to the tonic, the
-section seams, and every four-bar half compared against every other in the same style. Two faults
+section seams, and every four-bar half compared against every other in the same style. Three faults
 surfaced that nothing had been checking for, and each is now a rule.
 
 `assertSectionsDiffer` refuses a style in which two halves of the form are the same four bars. The
@@ -132,6 +132,24 @@ syncopated, it sounds incoherent, and it was not the drum *sounds* that were wro
 also had a bare `sd`, which is one token and therefore one onset **on the downbeat**, fighting the
 kick. Measured onsets before: `0, 1/6, 1/2, 2/3`. After: `0, 2/16, 4/16, 6/16, 8/16, 12/16` -
 every one on a sixteenth, with the snare on beats 2 and 4 where a backbeat belongs.
+
+`assertNeighboursDiffer` refuses two *neighbouring* four-bar units of a form that are the same unit
+entered at a different point. A unit and its rotation are one loop, not two, and
+`assertPhrasesDevelop` already rejects exactly that inside a section - but it cannot see it across a
+seam, and `assertSectionsDiffer` only ever compares units for equality, so a rotation shared between
+two sections was invisible to both. slow-bloom's Andalusian stated `VI III i VII` as its second half
+and the next section opened on `III i VII VI`: eight consecutive bars of one four-bar loop, which is
+why the arrival sounded like it kept failing. Only neighbours are compared, because the same unit
+stated again later in the form is a reprise, and a reprise is a legitimate thing; identity remains a
+fault anywhere.
+
+That rule immediately exposed something about the source library: **its named progressions come in
+rotation pairs.** 1625 (`i VI iiø7 V7`) and 逆循環 2516 (`iiø7 V7 i VI`) are one loop; so are 1645
+(`i VI iv V`) and 小室 6451 (`VI iv V i`). A style may use one of each pair, never both as separate
+sections - and after-hours has both pairs, which is why the standard turnaround's first half and the
+minor two-five's first half are the same four bars, and why the Andalusian fall and the Neapolitan's
+second half are too. Those two are statements at a distance and they stay; what the rule forbids is
+the day a reorder puts either pair next to each other.
 
 The volume complaint was real too, and separable. At equal gain the MPC60 snare measures **2.9x the
 kick** (rms 0.293 against 0.1024), so a snare on the downbeat was the loudest thing in the kit. With
@@ -199,6 +217,10 @@ intermediate and advanced tiers are almost entirely inversions, secondary domina
 borrowed chords.
 
 ### The blues, and three places it bends
+
+The working rules for the blues - the chorus and its variants, the turnaround, the blue-note rule
+that decides which chords can carry it, and the faults already found in this catalogue - are in
+`.github/skills/blues`, alongside the verified Strudel notes in `.github/skills/strudel`.
 
 The blues is a form rather than a progression, so its sections are readings of the same twelve
 bars: the plain chorus (`i i i i iv7 iv7 i i V7 iv7 i i`), a chromatic reading that opens on the
@@ -347,6 +369,30 @@ you are. Two drum cues do it:
 | `drums.fill` | the last bar of **every section** | a pickup on top of the groove - three added snares, or a rim and a snare |
 | `drums.turn` | the last bar of the **whole form** | toms and a crash, the only bar in the form where they are ever heard |
 
+`drums.fill` is a **list**, used one entry per pass through the form and cycling, so the cue fires
+in exactly the same bars as always while sounding different the second time round. A landmark in
+the same place is a landmark; a landmark that never changes is wallpaper. The mask for a later pass
+has to cover more than one form to repeat on it, which is why the cue masks are built over a period
+rather than over a form: a two-entry list makes a mask two forms long. `mc-rhythm-section` §8 is
+uncompromising that evenly spaced fills are a tell - "a fill every four bars is the textbook AI
+tell" - and this app keeps them evenly spaced on purpose, because here the cue is an *orientation*
+device rather than a musical event and a jam needs it to be where it was. What the rule catches is
+the part that was left: the cue was *identical* every time, which is the half of the fault that was
+real.
+
+**A style owns its own tempo**, the way it owns its kit and its palette. The drum-style table
+`mc-rhythm-section` works from gives a range per style, and a style at the wrong tempo is not that
+style: eighty beats per minute of house is not house, and a downtempo style at a dance tempo is not
+downtempo. So `Style.tempo` carries it, the transport follows the style, and the tempo follows only
+while the player has not taken it over - "taken it over" being simply being off the style's own
+tempo, so it needs no second flag to keep in step. Leave a style whose tempo you never touched and
+the next one arrives at its own; leave one you did touch and yours comes with you. Dragging the
+slider back onto the style's tempo hands it back.
+
+The range the transport offers (60-180) is wide enough to hold every style's own tempo, and
+`assertTemposArePlayable` checks that, because a style written for a tempo outside the range could
+never be played at its own tempo and its default would be a lie.
+
 Both are *added* to the bar rather than replacing it. That is what the user asked for - "similar beat
 but enhanced/changed enough to notice but not feel like it doesn't fit" - and it is also what makes a
 cue reliable: the groove never stops, so the cue can never be mistaken for a mistake. It is
@@ -363,10 +409,11 @@ Two details make it work, and both were verified in the page rather than assumed
   played - which is exactly the bar it exists to make audible - so `soundsToWarm` reads the cue
   patterns too.
 
-`assertCuesAreDistinct` refuses a style whose two cues are the same pattern, because the whole
-value of the pair is that a section end and the top of the cycle do not sound alike. The cue sounds
-are drawn from the set every one of the five kits carries (`sd ht mt lt rim cp cr`), so a cue cannot
-be silently missing a sample.
+`assertCuesAreDistinct` refuses a style whose cues repeat: no two section-cue variants may be the
+same pattern, and neither may be the form cue, because a variant that repeated another would tell
+the player the wrong thing rather than merely sounding repetitive - the pass meant to sound
+different would sound like the top of the cycle. The cue sounds are drawn from the set every one of
+the five kits carries (`sd ht mt lt rim cp cr`), so a cue cannot be silently missing a sample.
 
 Measured on night-drive by querying the app's own emitted pattern over 40 bars: bars 8, 16, 24, 32
 and 40 each gain three snares, and `ht`, `mt`, `lt` and `cr` appear on **bar 32 only** - 37 events
@@ -416,8 +463,8 @@ npx tsx scripts/verify-handoff.ts
 The generated program is one `const` per voice and a final `stack`:
 
 ```js
-const drums = s("bd*4, ~ cp ~ cp").bank("RolandTR909").lpf(12000).gain(0.8).orbit(1)
-const perc = s("[~ oh]*2, [~ hh]*4").bank("RolandTR909").gain(0.34).orbit(1)
+const drums = stack(s("bd*4"), s("~ cp ~ cp")).bank("RolandTR909").lpf(12000).postgain(0.4).orbit(1)
+const perc = s("[~ oh]*2, [~ hh]*4").bank("RolandTR909").gain(0.17).orbit(1)
 const bass = note("<...>").s("gm_electric_bass_pick")....orbit(2)
 const pad = note("<...>").s("sawtooth").lpf(1600).attack(0.5).release(0.7).room(0.5).gain(0.17).clip(1).orbit(3).analyze(3)
 const chords = note("<...>").s("clavisynth")....gain("<...>").orbit(4)
@@ -675,20 +722,94 @@ Two facts about soundfonts decide how the rest of the audio code is written:
 
 ### Hearing one part at a time
 
-The list of layers is a mixer: every row has `M` and `S` buttons, and a silenced row is dimmed.
-`M` silences a part, `S` hears it alone, and with any part soloed the rest are out. Mute wins
-over solo, so a part that is both stays silent - the same way every mixer behaves.
+The list of layers is a mixer: every row has `M` and `S` buttons and a level slider, and a
+silenced row is dimmed. `M` silences a part, `S` hears it alone, and with any part soloed the rest
+are out. Mute wins over solo, so a part that is both stays silent - the same way every mixer
+behaves.
 
 Silencing a part is a gain change on that part's own output bus. Each pattern layer is routed to
-its own Strudel **orbit** (`.orbit(1)` drums and percussion, `2` bass, `3` pad, `4` chords), and an
+its own Strudel **orbit** (`.orbit(1)` drums, `2` bass, `3` pad, `4` chords, `6` percussion), and an
 orbit's `output` is a real `GainNode`, so a part stops on the note it is already ringing and comes
-back the same way. Nothing is re-evaluated and the phrase is not disturbed. The alternative -
+back the same way. Every layer needs its own number, because the mixer reaches a layer by writing the
+gain of the orbit it plays in. The percussion used to share the drums' orbit, and that is not a
+saving: two layers on one orbit can only ever be silenced together - muting the drums silenced the
+percussion with it - and having no layer id of its own, the percussion had no row to be reached by at
+all. Orbit `5` is skipped, because analyser ids and orbit numbers share one space and `5` is the live
+keys' analyser. `assertLayerOrbitsAreDistinct` refuses a repeat.
+
+Nothing is re-evaluated and the phrase is not disturbed. The alternative -
 rebuilding the program with `gain(0)` on one layer - would re-evaluate the program to change a
 mixer setting, and the silenced layer would still be scheduled, just silent.
 
+The slider in each row is a **trim on the balance its style is written with**, from silence to
+150%, starting at 100% and turning green when it is off that. It is a level rather than a second
+opinion on the arrangement: what a style sounds like is part of the style, and a per-session
+control is the wrong place to decide it. Double-trimming several parts always leaves the option of
+`Reset levels`, which appears beside the hint once anything is off its default.
+
 The solo row is the live keys rather than a pattern layer, so its mute goes to the voice that
-plays your MIDI instead of to an orbit. The levels are re-applied after a stop and restart,
-because Strudel rebuilds its orbits when it resets.
+plays your MIDI instead of to an orbit, and its slider is the **lead level** - an absolute setting
+from silence to 3x rather than a trim, because the lead runs a compressor rather than a bus gain.
+It lives in the row for the same reason the others do: it is that part's level. It is stored in
+`localStorage` rather than in the selection, so moving it does not rebuild the program, and the
+levels are all re-applied after a stop and restart, because Strudel rebuilds its orbits on reset.
+
+The drum and percussion levels in the style table are a **measured** balance rather than a taste.
+They used to sit about twice as high, which put the drum bus at rms 0.170 against 0.048 for the
+pad, 0.036 for the bass and 0.014 for the chords - four to twelve times every other part, about
+89% of the whole mix's energy, and peaking at 1.43 on its own, past full scale before anything else
+was added. Halving the two gains puts the bus at 0.083, still comfortably the loudest part and no
+longer the whole of it, and brings the peak of the entire mix down from 1.54 to 0.79. Measured on
+the master tap with each part soloed in turn.
+
+##### A level on the bus cannot fix a balance inside it
+
+That fix moved the whole kit, and the kit was still lopsided. The complaint that survived it was
+that the hi-hats in `after-hours` and `blues` and the snare in `broken-beat` were tiring, and no
+setting of a bus gain can answer that, because turning the bus down turns the kick down with it.
+Measuring each voice on its own - one voice at gain 1, four hits to the bar, rms over a two-second
+window on the master tap - found why. A voice's share of its own kit is its level times its onsets
+per bar, and onsets win: the blues' `hh*8` was **83%** of that style's drum bus at 2.4 times the
+kick's contribution, purely by counting, because eight onsets beat two whatever the per-hit level
+is. `after-hours`' ride was **97%** of its bus at five to the bar, 4.5 times the kick, and the MPC60
+snare is the loudest single sample in the survey at 2.7 times its own kick.
+
+So a kit is a list of voices, each able to carry its own level - `0.4` for the blues hat, `0.35`
+for the ride, `0.45` for the snare - and the kit's own level moved to `postgain` to make that
+possible:
+
+```js
+const drums = stack(s("bd sd bd sd"), s("hh*8").gain(0.4)).bank("LinnDrum").lpf(10000).postgain(0.36)
+```
+
+`postgain` is not decoration. A control applied to the **outside** of a pattern **replaces** the
+same control on the haps inside it, so an outer `.gain(0.36)` silently erases every voice's
+`.gain()` and resets the kit to one number - the generated code reads correctly and does nothing at
+all. Measured in the running app: `stack(s("a"), s("b").gain(0.4)).gain(0.36)` gives every hit a
+gain of `0.36`, while `.postgain(0.36)` leaves `b` at `0.4`. `postgain` is a separate param with its
+own `GainNode` in series, which is exactly the separation a kit level and a voice balance need.
+
+`scripts/audit-kit-balance.ts` prints each voice's share of its kit from the measured per-voice
+levels, and flags a kit whose loudest voice is more than twice its next - the one shape that is
+wrong in every style. It flags `night-drive`'s four-on-the-floor kick at 99% of its bus, which is
+what house is, so it warns rather than fails: rms over a bar favours long low sounds, and the
+judgement is the ear's.
+
+##### A quiet sample is not a quiet part
+
+How much gain a part carries is not comparable between a synth and a sample, and the figure layers
+are where that bites. Measured with the Chords row soloed in `slow-bloom`, the figure peaked at
+**0.017** against the pad's **0.189** - while the figure's own gain pattern (`0.9` on a beat, `0.55`
+off it, times `arpSound.gain`) was already *higher* than the pad's flat `0.2`. The pattern was right
+and the sample was the problem: `psaltery_pluck` is a soft zither recording, and it plays most of an
+order of magnitude below a synth at the same gain. Raising `arpSound.gain` from 0.34 to 2.0 brought
+the figure to **0.093** peak, about half the pad - audible underneath it instead of masked by it,
+which is what a sustained pad does to short plucks far more than to another sustained part.
+
+A gain above 1 is level matching here rather than a mistake, and the same reason
+`gm_electric_bass_pick` and a `sawtooth` had to be measured against each other to land on the same
+0.099 peak. Any figure or lead that is a quiet sample rather than a synth needs that treatment
+before its part can be judged at all.
 
 ### Loading and balance
 
@@ -758,6 +879,12 @@ The level is kept out of `Selection` on purpose. `plan` is memoised on the selec
 it there would rebuild and re-evaluate the Strudel pattern on every drag of the slider. It is
 persisted to `localStorage` instead, and applies to notes that are already ringing rather than
 only the next one.
+
+The control sits in the **solo row of the mixer**, beside that row's `M` and `S`, rather than in
+the control rail where it started. It is the level of one part, and every other part's level is in
+its own row; a control that belongs to a row is best off in it. Its slider is the same size, shape
+and colour as the pattern layers' trims - including turning green when it is off its default - so
+the four trims and the lead read as one strip of controls instead of two unrelated ones.
 
 If you hear nothing, check in this order: the "Play my keys" switch, the AudioContext state (the voice stays silent unless it is `running`), the instrument palette, and the browser tab's audio output.
 

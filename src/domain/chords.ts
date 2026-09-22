@@ -129,6 +129,33 @@ export function chordNotes(chord: Chord, key: KeyId): string[] {
   return chord.offsets.map((offset) => pitch(offset, key, 3))
 }
 
+/**
+ * The pad's voicing as semitone offsets from the tonic, ascending: the chord opened out.
+ *
+ * Every chord in the table is written in closed root position - a triad inside a fifth, a seventh
+ * chord inside a seventh - and they are all pitched in the same octave, so every change moved by a
+ * step or two in the middle of the texture and nothing else happened. Raising the second voice from
+ * the bottom by an octave is the standard open voicing: the root stays where it was, the fifth sits
+ * above it, and the third goes on top an octave higher. The same notes now span a twelfth or more,
+ * which is where a pad's width comes from, and it puts the third in the clearest place to be heard -
+ * a closed triad hides the note that says whether the chord is major or minor.
+ *
+ * Two things follow from this being a separate function rather than a rewrite of `offsets`. The
+ * figure arpeggiates chord tones in the order they are written and the bass reads offset 1 and 2 as
+ * the third and the fifth, so the written order has to stay exactly as it is; and the voicing is a
+ * property of the pad, not of the chord - a chord is an idea, and this is one way of laying it out.
+ */
+export function padOffsets(chord: Chord): number[] {
+  const raised = [...chord.offsets]
+  if (raised.length > 2) raised[1] += 12
+  return raised.sort((a, b) => a - b)
+}
+
+/** The pad's voicing as written pitches: `padOffsets`, in octave 3. */
+export function padVoicing(chord: Chord, key: KeyId): string[] {
+  return padOffsets(chord).map((offset) => pitch(offset, key, 3))
+}
+
 /** Chord symbol: root, quality, and the bass note when the chord is inverted. */
 export function chordSymbol(chord: Chord, key: KeyId): string {
   const name = (offset: number) => {

@@ -49,6 +49,16 @@ export type Selection = {
   tempo: number
 }
 
+/**
+ * The tempo range the transport offers.
+ *
+ * Wide enough to hold every style's own tempo rather than a range chosen first and styles fitted
+ * to afterwards: a blues runs to 160 and a downtempo style sits under 80, so a transport that
+ * stopped at 150 could not reach the tempos two of the styles are written for. `validate.ts`
+ * checks each style's tempo is inside this, because a default outside it is unreachable.
+ */
+export const TEMPO_RANGE = { min: 60, max: 180 } as const
+
 export const chordModes: { id: ChordModeId; label: string; description: string }[] = [
   { id: 'pad', label: 'Pads', description: 'sustained chord bed' },
   { id: 'arp', label: 'Arpeggio', description: 'chord played as a figure' },
@@ -59,7 +69,7 @@ export const chordModes: { id: ChordModeId; label: string; description: string }
  * The parts the mixer can silence. `solo` is the live keys rather than a pattern
  * layer, so it has no orbit of its own - it is the one part this app plays itself.
  */
-export type LayerId = 'drums' | 'bass' | 'pad' | 'chords' | 'solo'
+export type LayerId = 'drums' | 'perc' | 'bass' | 'pad' | 'chords' | 'solo'
 
 /**
  * One Strudel orbit per pattern layer, which is what makes mute and solo possible.
@@ -67,12 +77,19 @@ export type LayerId = 'drums' | 'bass' | 'pad' | 'chords' | 'solo'
  * while a note is still ringing: nothing is re-evaluated and the phrase plays on
  * undisturbed. Orbit 0 is left alone - it is Strudel's default, and the lead, which
  * is not a pattern layer at all, shares it.
+ *
+ * Every layer needs its OWN number, because the mixer reaches a layer by writing the gain of the
+ * orbit it plays in. The percussion used to share the drums' orbit, and that is not a saving: two
+ * layers on one orbit can only ever be silenced together, and the percussion had no layer id, so
+ * there was no row to reach it by and no way to trim it either. Orbit 5 is skipped because analyser
+ * ids and orbit numbers share one space and 5 is the live keys' analyser.
  */
 export const LAYER_ORBITS: Record<Exclude<LayerId, 'solo'>, number> = {
   drums: 1,
   bass: 2,
   pad: 3,
   chords: 4,
+  perc: 6,
 }
 
 export type Layer = {
@@ -100,6 +117,16 @@ export type Sound = {
   synth?: string
   /** Required when `synth` is `user` - superdough warns and falls back to triangle without it. */
   partials?: number[]
+  /**
+   * Detune spread across the voices of an oscillator that has voices to spread, in semitones.
+   *
+   * Only `supersaw` has them: it is one worklet carrying five oscillators, and this is the total
+   * spread from the lowest to the highest, so 0.18 puts them either side of the root at +/-9 cents.
+   * It halves the per-voice level as it adds voices, so a wider spread is width and not volume. Set
+   * on a single oscillator it is nothing at all, because there is one voice and nothing to move it
+   * away from itself.
+   */
+  detune?: number
   lpf?: number
   lpq?: number
   /**
@@ -128,6 +155,8 @@ export type Sound = {
 /** A layer's instrument plus the tone a style plays it with. */
 export type StyleLayer = {
   instrument: InstrumentId
+  /** See `Sound`: the detune spread, which only a voice-carrying oscillator can use. */
+  detune?: number
   lpf?: number
   lpq?: number
   /** See `Sound`: the filter envelope, which needs `lpf` to mean anything. */
@@ -242,19 +271,53 @@ export type Style = {
   form: SequenceId[]
   /** The chords this style is allowed to use. Every sequence chord must appear here. */
   palette: ChordId[]
+  /**
+   * The tempo this style is written for, in BPM.
+   *
+   * A style is a tempo as much as it is a chord palette. Eighty beats per minute of house is not
+   * house, and a downtempo style at a dance tempo is not downtempo - the tempo decides which feel
+   * is even available, which is why it comes second in the order of decisions rather than last. So
+   * it belongs to the style, the way its kit and its palette do, and the transport follows the
+   * style until the player takes the tempo over by hand.
+   */
+  tempo: number
   drums: {
-    pattern: string
+    /**
+     * The kit's voices, each with its own level.
+     *
+     * One `s()` call per voice rather than one comma-separated pattern, because the balance *inside*
+     * a kit is not something the kit's own gain can express. Measured against the banks this repo
+     * uses, the MPC60 snare stands 2.7x above its own kick, the LinnDrum hi-hat playing straight
+     * eighths was 83% of the blues' drum bus, and the R-8 ride at five to the bar was 97% of
+     * after-hours' - and a voice that far above its own kick cannot be fixed by turning the kit
+     * down, because that turns the kick down with it. A mix that is wrong inside one layer is wrong
+     * at every level that layer can be set to.
+     *
+     * `gain` is the voice's balance within the kit; the kit's own `gain` stays what it was, the kit's
+     * level against the rest of the arrangement. It is a trim and not a volume - a voice wanting to
+     * sit above unity means the kit is set too low - so it belongs to the voices that need one and
+     * is left off the ones that do not, which keeps a stated level a decision rather than a number
+     * copied down five styles for the sake of the shape.
+     */
+    voices: { pattern: string; gain?: number }[]
     bank?: string
     gain: number
     lpf?: number
     /**
-     * Added on the last bar of every section, on top of the groove.
+     * Added on the last bar of every section, on top of the groove - one entry per pass.
      *
      * A form is thirty-two bars, which is far too long to hold your place in by counting, so the
      * arrangement has to tell the player where they are instead. This is the small cue: a pickup
      * on the last bar of a section, so a section end sounds like a section end.
+     *
+     * A list rather than one pattern, because a landmark in the same place is a landmark and a
+     * landmark that never changes is wallpaper. The entries are used one per pass through the form
+     * and cycle, so the cue *moves* every time the form comes round while staying exactly where it
+     * was: the player still knows which bar they are on, and the second time round does not sound
+     * like the first. Two entries cover the window between the form settling and the form moving,
+     * which is what `HOLD_FORMS` schedules.
      */
-    fill: string
+    fill: string[]
     /**
      * Added on the last bar of the whole form - the same idea one level up, and a different shape.
      *

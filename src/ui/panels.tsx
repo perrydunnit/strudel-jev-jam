@@ -12,11 +12,11 @@ import { findInstrument } from '../domain/samples'
 import { arps, rhythms } from '../domain/figures'
 import { chordSymbol, firstChord, keys } from '../domain/chords'
 import { findSequence, findStyle, homeSequence, chartSections, styles } from '../domain/styles'
-import { chordModes, LAYER_ORBITS, type LayerId, type Selection, type SequenceId, type Style } from '../domain/vocabulary'
+import { chordModes, LAYER_ORBITS, TEMPO_RANGE, type LayerId, type Selection, type SequenceId, type Style } from '../domain/vocabulary'
 import { HOLD_FORMS } from '../domain/harmony'
 import type { PatternPlan } from '../domain/pattern'
 import type { StrudelPlayer } from '../audio/strudelPlayer'
-import { LEAD_LEVEL_RANGE } from '../audio/liveVoice'
+import { DEFAULT_LEAD_LEVEL, LEAD_LEVEL_RANGE } from '../audio/liveVoice'
 import { noteName, type MidiSnapshot, type MidiState } from '../midi/midiHandler'
 import type { DecisionResponse } from '../ai/jevEngine'
 import type { Mixer } from './useMixer'
@@ -40,7 +40,6 @@ export type SessionState = {
   snapshot: MidiSnapshot
   preloaded: number
   backing: number
-  leadLevel: number
   keysThrough: boolean
   audioReady: boolean
   jevEnabled: boolean
@@ -50,7 +49,6 @@ export type SessionActions = {
   chooseStyle: (id: Selection['style']) => void
   update: (patch: Partial<Selection>) => void
   toggleSession: () => void
-  setLeadLevel: (level: number) => void
   setKeysThrough: (through: boolean) => void
   toggleJev: (next: boolean) => void
   connectMidi: () => void
@@ -60,14 +58,19 @@ export type SessionActions = {
 export function ControlRail({ state, actions }: { state: SessionState; actions: SessionActions }) {
   const { selection, midi, snapshot } = state
   const heard = snapshot.activeNotes.map(noteName)
+  const style = findStyle(selection.style)
+  // The tempo is the style's until the player moves it, and the only evidence needed is that it no
+  // longer matches. Dragging the slider back onto the style's own tempo hands it back.
+  const tempoPinned = selection.tempo !== style.tempo
 
   return (
     <aside className="control-rail">
       <div className="rail-heading"><span>01</span><h2>Session</h2></div>
       <label>Style<select value={selection.style} onChange={(event) => actions.chooseStyle(event.target.value as Selection['style'])}>{styles.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}</select></label>
-      <p className="style-note">{findStyle(selection.style).description}</p>
+      <p className="style-note">{style.description}</p>
       <label>Key<select value={selection.key} onChange={(event) => actions.update({ key: event.target.value as Selection['key'] })}>{keys.map((option) => <option key={option}>{option}</option>)}</select></label>
-      <label>Tempo <output>{selection.tempo} BPM</output><input type="range" min="70" max="150" value={selection.tempo} onChange={(event) => actions.update({ tempo: Number(event.target.value) })} /></label>
+      <label>Tempo <output>{selection.tempo} BPM</output>{tempoPinned && <em className="pin-tag">pinned</em>}<input type="range" min={TEMPO_RANGE.min} max={TEMPO_RANGE.max} value={selection.tempo} onChange={(event) => actions.update({ tempo: Number(event.target.value) })} /></label>
+      {tempoPinned && <p className="style-note">{style.label} is written for {style.tempo} BPM, and a style change will keep your tempo until you set it back.</p>}
       <button className={state.isPlaying ? 'transport active' : 'transport'} type="button" onClick={actions.toggleSession}><span>{state.isPlaying ? '■' : '▶'}</span>{state.isPlaying ? 'Stop the session' : 'Start the session'}</button>
       {state.notice && <p className="error-status">{state.notice}</p>}
 
@@ -81,10 +84,6 @@ export function ControlRail({ state, actions }: { state: SessionState; actions: 
         <label>to<input type="number" min="0" max="127" value={selection.soloHigh} onChange={(event) => actions.update({ soloHigh: clampNote(event.target.value) })} /><small>{noteName(selection.soloHigh)}</small></label>
       </div>
       {state.preloaded > 0 && <p className="heard"><span>prepared</span><strong>{state.preloaded} solo · {state.backing} backing · {findInstrument(selection.solo).label}</strong></p>}
-      <label className="lead-level">
-        Lead level<output>{state.leadLevel.toFixed(2)}x</output>
-        <input type="range" min={LEAD_LEVEL_RANGE.min} max={LEAD_LEVEL_RANGE.max} step={LEAD_LEVEL_RANGE.step} value={state.leadLevel} onChange={(event) => actions.setLeadLevel(Number(event.target.value))} />
-      </label>
       <div className="voice-row">
         <label className="switch">
           <input type="checkbox" checked={state.keysThrough} onChange={(event) => actions.setKeysThrough(event.target.checked)} />
@@ -115,6 +114,8 @@ export type StageState = {
   lastDecision: DecisionResponse | null
   /** How many times in a row the phrase has already come round, so the stage can say so. */
   heldCount: number
+  /** The live voice's own level, which is a compressor chain rather than a bus gain. */
+  leadLevel: number
   selection: Selection
   style: Style
   heard: string[]
@@ -125,38 +126,85 @@ export type StageState = {
 
 export type StageActions = {
   chooseSequence: (id: SequenceId) => void
+  setLeadLevel: (level: number) => void
 }
 
-/** One mute and one solo button per part. Muting the keys part silences the live voice. */
-function PartControls({ id, name, mixer }: { id: LayerId; name: string; mixer: Mixer }) {
+/** One mute and one solo button, and one level control, per part. Muting the keys part silences the live voice. */
+function PartControls({
+  id,
+  name,
+  mixer,
+  lead,
+}: {
+  id: LayerId
+  name: string
+  mixer: Mixer
+  lead?: { level: number; set: (level: number) => void }
+}) {
   const muted = mixer.muted.includes(id)
   const soloed = mixer.soloed.includes(id)
+  // The keys are the one part the mixer does not route: their level is the lead control, which runs
+  // a compressor chain rather than a bus gain and is stored with the instrument, so it arrives here
+  // as its own control rather than as a mixer trim.
+  const mixable = id === 'solo' ? undefined : id
+  const level = mixable ? mixer.levels[mixable] : lead?.level ?? 1
+  // The trim is "off its default" for the pattern layers and for the keys alike, so the same green
+  // means the same thing in every row.
+  const off = mixable ? level !== 1 : lead !== undefined && lead.level !== DEFAULT_LEAD_LEVEL
   return (
     <span className="layer-actions">
-      <button
-        className={muted ? 'layer-button muted' : 'layer-button'}
-        type="button"
-        aria-pressed={muted}
-        title={muted ? `Unmute ${name}` : `Mute ${name}`}
-        onClick={() => mixer.toggleMute(id)}
-      >
-        M
-      </button>
-      <button
-        className={soloed ? 'layer-button soloed' : 'layer-button'}
-        type="button"
-        aria-pressed={soloed}
-        title={soloed ? `Stop hearing ${name} alone` : `Hear ${name} alone`}
-        onClick={() => mixer.toggleSolo(id)}
-      >
-        S
-      </button>
+      <span className="layer-switches">
+        <button
+          className={muted ? 'layer-button muted' : 'layer-button'}
+          type="button"
+          aria-pressed={muted}
+          title={muted ? `Unmute ${name}` : `Mute ${name}`}
+          onClick={() => mixer.toggleMute(id)}
+        >
+          M
+        </button>
+        <button
+          className={soloed ? 'layer-button soloed' : 'layer-button'}
+          type="button"
+          aria-pressed={soloed}
+          title={soloed ? `Stop hearing ${name} alone` : `Hear ${name} alone`}
+          onClick={() => mixer.toggleSolo(id)}
+        >
+          S
+        </button>
+      </span>
+      {mixable && (
+        <input
+          className={off ? 'level-slider trimmed' : 'level-slider'}
+          type="range"
+          min={0}
+          max={150}
+          step={5}
+          value={Math.round(level * 100)}
+          aria-label={`${name} level`}
+          title={`${name} level ${Math.round(level * 100)}% of what its style is written with`}
+          onChange={(event) => mixer.setLevel(mixable, Number(event.target.value) / 100)}
+        />
+      )}
+      {lead && (
+        <input
+          className={off ? 'level-slider trimmed' : 'level-slider'}
+          type="range"
+          min={LEAD_LEVEL_RANGE.min}
+          max={LEAD_LEVEL_RANGE.max}
+          step={LEAD_LEVEL_RANGE.step}
+          value={lead.level}
+          aria-label={`${name} level`}
+          title={`${name} level ${lead.level.toFixed(2)}x`}
+          onChange={(event) => lead.set(Number(event.target.value))}
+        />
+      )}
     </span>
   )
 }
 
 export function DecisionStage({ state, actions }: { state: StageState; actions: StageActions }) {
-  const { plan, barIndex, pendingSequence, directionSource, jevEnabled, pinned, lastDecision, heldCount, selection, style, heard, isPlaying, player, mixer } = state
+  const { plan, barIndex, pendingSequence, directionSource, jevEnabled, pinned, lastDecision, heldCount, selection, style, heard, isPlaying, player, mixer, leadLevel } = state
   const held = heldCount + 1
   const home = homeSequence(style).id
   // The form is what the player is committed to, so the strip shows all of it, in rows of one
@@ -220,10 +268,13 @@ export function DecisionStage({ state, actions }: { state: StageState; actions: 
           <span className="layer-detail">live keys · {findInstrument(selection.solo).label}</span>
           <code className="layer-notes"><b>keys</b> {heard.length ? heard.join(' ') : 'plays your MIDI input'}</code>
           <VoiceCanvas view={VOICE_VIEWS.solo} player={player} playing={isPlaying} />
-          <PartControls id="solo" name="Solo" mixer={mixer} />
+          <PartControls id="solo" name="Solo" mixer={mixer} lead={{ level: leadLevel, set: actions.setLeadLevel }} />
         </div>
       </div>
-      <p className="hint">M silences a part, S hears it alone; with any part soloed the rest are out. Both are gain changes on the part's own bus, so they take effect on the note that is already ringing and leave the phrase running - and <em>Solo</em> here means the keys you play, not the instrument.</p>
+      <div className="mixer-note">
+        <p className="hint">M silences a part and S hears it alone, in the part's own row; the slider under them trims that part against the balance its style is written with, and turns green when it is off it. All of them are gain changes on the part's own bus, so they take effect on the note that is already ringing and leave the phrase running - and <em>Solo</em> here means the keys you play, not the instrument.</p>
+        {mixer.trimmed && <button className="ghost" type="button" onClick={mixer.resetLevels}>Reset levels</button>}
+      </div>
 
       <div className="decision-list">
         {style.sequences.map((option, index) => (

@@ -140,7 +140,13 @@ export const instruments: Instrument[] = [
   // --- Bass -----------------------------------------------------------------
   soundfont('bass-pick', 'Pick bass', 'electric bass, plectrum', 'Electric', 'bass', 'gm_electric_bass_pick', [28, 60]),
   soundfont('bass-finger', 'Finger bass', 'electric bass, fingers', 'Electric', 'bass', 'gm_electric_bass_finger', [28, 60]),
-  soundfont('bass-synth', 'Synth bass', 'round analogue sub', 'Electric', 'bass', 'gm_synth_bass_1', [24, 60]),
+  // An oscillator rather than the `gm_synth_bass_1` sample it used to be. A sampled preset is
+  // someone else's idea of a synth bass, and worse, its attack is a loop point: it cannot be
+  // shaped, so a filter sweep can only ever happen *next to* it rather than to it. A built-in
+  // shape has no such problem, and it is nothing to fetch or decode.
+  // `supersaw` is a worklet with five detuned voices, so switching to it is also where this style's
+  // chorus comes from - see the note on the bass in `styles.ts`.
+  oscillator('bass-synth', 'Chorus sub', 'detuned unison saw, wide and round', 'Electric', 'bass', 'supersaw', [24, 60]),
   soundfont('bass-upright', 'Upright bass', 'acoustic double bass', 'Acoustic', 'bass', 'gm_acoustic_bass', [24, 60]),
   soundfont('bass-synth-2', 'Saw bass', 'bright analogue synth bass', 'Electric', 'bass', 'gm_synth_bass_2', [24, 60]),
 ]

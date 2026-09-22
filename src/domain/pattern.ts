@@ -10,7 +10,7 @@
  * layer is what lets the panel show each part as its own line, and what lets each view be
  * read against the thing it draws.
  */
-import { chordNotes, chordSymbol, findChord, pitch } from './chords'
+import { chordNotes, chordSymbol, findChord, padVoicing, pitch } from './chords'
 import { arpTokens, findArp, findRhythm, type Arp, type Rhythm } from './figures'
 import { findSequence, findStyle, chartSections, sectionBars } from './styles'
 import {
@@ -38,7 +38,14 @@ import {
 /** One chord of one bar, already turned into the tokens each layer plays. */
 type BuiltPart = {
   label: string
+  /** The chord as written, closed and in root position: what the figure arpeggiates. */
   notes: string[]
+  /**
+   * The same chord voiced open for the pad. Separate from `notes` on purpose: the figure arpeggiates
+   * chord tones in the order they are written, so an octave raised for the pad would silently
+   * reorder the figure underneath it.
+   */
+  pad: string[]
   bass: string[]
   figure: { token: string; gain: number }[]
 }
@@ -147,17 +154,23 @@ function barsFor(voicing: Voicing, leader: SequenceId): BuiltBar[] {
     // new root still lands on the beat.
     const slots = Math.max(1, Math.floor(rhythm.slots / ids.length))
     const template = ids.length > 1
-      ? bassTemplate.slice(0, Math.floor(bassTemplate.length / ids.length)).join(' ')
+      // At least one token, always. A style whose template is a single whole-bar root - `slow-bloom`
+      // is the one - would otherwise slice to nothing on a two-chord bar and play a bar of rest.
+      // The second chord's root is still dropped in that case, which is why no two-chord bar exists
+      // in a style with a one-token template, but silence is the wrong way to find that out.
+      ? bassTemplate.slice(0, Math.max(1, Math.floor(bassTemplate.length / ids.length))).join(' ')
       : style.bass.template
 
     const parts = ids.map((chordId, index) => {
       const chord = findChord(chordId)
       const notes = chordNotes(chord, selection.key)
       const tokens = arpTokens(notes, selection.arp)
+      const pad = padVoicing(chord, selection.key)
       const bassNote = chord.bass ?? chord.root
       return {
         label: chordSymbol(chord, selection.key),
         notes,
+        pad,
         bass: bassSteps(template, notes, pitch(bassNote, selection.key, 2), pitch(bassNote, selection.key, 3)),
         figure: figureEvents(tokens, rhythm, slots, index, accent),
       }
@@ -201,41 +214,78 @@ const bank = (name?: string) => (name ? `.bank("${name}")` : '')
 const soundNames = (pattern: string) => [...new Set(pattern.match(/[a-z][a-z0-9_]*/g) ?? [])]
 
 /**
- * A `<...>` mask with a 1 on the bars a cue fires on.
+ * The bar offsets, from the top of a form, where a cue fires.
  *
  * `section` marks the last bar of every section and `form` only the last bar of the whole form. Both
  * are built from the actual section lengths, so a twelve-bar blues gets its section cue on its own
  * twelfth bar rather than on a bar count that assumed eight.
  */
-const cueMask = (lengths: number[], on: 'section' | 'form') => {
+function cueOffsets(lengths: number[], on: 'section' | 'form'): number[] {
   const total = lengths.reduce((sum, count) => sum + count, 0)
-  const fires = new Set<number>()
+  const fires: number[] = []
   let at = 0
   lengths.forEach((count) => {
     at += count
-    if (on === 'section') fires.add(at - 1)
+    if (on === 'section') fires.push(at - 1)
   })
-  if (on === 'form') fires.add(total - 1)
-  return `<${Array.from({ length: total }, (_, index) => (fires.has(index) ? '1' : '0')).join(' ')}>`
+  if (on === 'form') fires.push(total - 1)
+  return fires
+}
+
+/**
+ * A `<...>` mask, one value per bar, with a 1 on the given bars and nothing outside `period` bars.
+ *
+ * One cycle is one bar, so the mask lines up with the bar counter by construction and repeats every
+ * `period` bars. The period is what lets a mask reach across more than one form.
+ */
+function maskAt(offsets: number[], period: number): string {
+  const fires = new Set(offsets)
+  return `<${Array.from({ length: period }, (_, at) => (fires.has(at) ? '1' : '0')).join(' ')}>`
 }
 
 function drumVoice({ style, sections }: Voicing): Voice {
   const { drums } = style
-  // Two cues, told apart by ear rather than by counting. `fill` lands on the last bar of every
-  // section and `turn` on the last bar of the whole form, so the cycle has a small landmark every
-  // eight bars and a different, bigger one at the top.
+  // Three cues, told apart by ear rather than by counting. A section cue lands on the last bar of
+  // every section and the turn on the last bar of the whole form, so the cycle has a small landmark
+  // every eight bars and a different, bigger one at the top.
+  //
+  // The section cue has one variant per pass through the form and cycles through them, so it fires
+  // in exactly the same bars as always while sounding different the second time round. That needs a
+  // mask covering the whole cycle rather than one form, which is what `maskAt`'s period is for: a
+  // two-entry cue list makes the mask two forms long, and the cue alternates as the form repeats.
   //
   // Layered with `superimpose` rather than replacing the bar: the groove carries straight through
   // and the fill sits on top, which is what lets a cue be obvious without sounding like a
   // mistake. The masks are one value per bar, so they line up with the sections by the same
-  // absolute-cycle alignment the arrangement masks already rely on - and both are applied before
-  // the bank, filter and gain, so the cue is the same instrument as the kit it belongs to.
+  // absolute-cycle alignment the arrangement masks already rely on - and all three are applied
+  // before the bank, filter and gain, so a cue is the same instrument as the kit it belongs to.
+  const total = sections.reduce((sum, count) => sum + count, 0)
+  const sectionEnds = cueOffsets(sections, 'section')
+  const passes = drums.fill.length
+  const cues = drums.fill
+    .map((fill, pass) => `.when("${maskAt(sectionEnds.map((at) => at + pass * total), passes * total)}", (x) => x.superimpose(() => s("${fill}")))`)
+    .join('')
+  // One `s()` per voice, stacked, so that each voice can carry its own level - the balance inside a
+  // kit is not something the kit's own gain can express. The cues below are stacked on the outside
+  // of all of it, which is what keeps them the same instrument as the kit they belong to: a cue
+  // layered onto one voice would arrive at that voice's level and be a different drum.
+  const kit = drums.voices
+    .map((voice) => `s("${voice.pattern}")${voice.gain === undefined ? '' : `.gain(${voice.gain})`}`)
+    .join(', ')
   return {
     name: 'drums',
-    code: `s("${drums.pattern}")`
-      + `.when("${cueMask(sections, 'section')}", (x) => x.superimpose(() => s("${drums.fill}")))`
-      + `.when("${cueMask(sections, 'form')}", (x) => x.superimpose(() => s("${drums.turn}")))`
-      + `${bank(drums.bank)}.lpf(${drums.lpf ?? 12000}).gain(${drums.gain})`
+    code: `stack(${kit})`
+      + cues
+      + `.when("${maskAt(cueOffsets(sections, 'form'), total)}", (x) => x.superimpose(() => s("${drums.turn}")))`
+      // The kit's own level goes on `postgain`, not `gain`, and that is not a style choice - it is
+      // the only thing that works. A control applied to the outside of a pattern *replaces* the same
+      // control on the haps inside it, so an outer `.gain(0.36)` here would erase every voice's own
+      // `.gain()` and silently reset the whole kit to one number. Measured in the running app:
+      // `stack(s("a"), s("b").gain(0.4)).gain(0.36)` yields gain 0.36 on all three hits, while
+      // `.postgain(0.36)` leaves `a` at nothing and `b` at 0.4. superdough then multiplies the two
+      // in series, which is what makes the kit's level and the voice's balance independent - the bug
+      // this replaced looked correct in the generated code and did nothing at all.
+      + `${bank(drums.bank)}.lpf(${drums.lpf ?? 12000}).postgain(${drums.gain})`
       + `${feelCode('drums')}${maskCode(style.arrangement.drums)}${orbit('drums')}`,
   }
 }
@@ -244,7 +294,7 @@ function percVoice({ style }: Voicing): Voice {
   return {
     name: 'perc',
     code: `s("${style.perc.pattern}")${bank(style.perc.bank)}.gain(${style.perc.gain})`
-      + `${feelCode('perc')}${maskCode(style.arrangement.perc)}${orbit('drums')}`,
+      + `${feelCode('perc')}${maskCode(style.arrangement.perc)}${orbit('perc')}`,
   }
 }
 
@@ -260,7 +310,7 @@ function bassVoice(voicing: Voicing, programBars: BuiltBar[]): Voice {
 
 function padVoice(voicing: Voicing, programBars: BuiltBar[]): Voice {
   const { style } = voicing
-  const notes = slowcat(programBars, (bar) => group(bar.parts.map((part) => [part.notes.join(',')])))
+  const notes = slowcat(programBars, (bar) => group(bar.parts.map((part) => [part.pad.join(',')])))
   return {
     name: 'pad',
     // `.clip(1)` cuts the chord at its own duration, so the pad cannot ring over the next
@@ -286,7 +336,21 @@ function chordVoice(voicing: Voicing, programBars: BuiltBar[]): Voice {
 }
 
 function drumsRow(style: Style, rhythm: Rhythm): Layer {
-  return { id: 'drums', name: 'Drums', detail: `${style.drums.bank ?? 'uzu kit'} · ${rhythm.label}`, notes: style.drums.pattern, sectionNotes: [] }
+  return {
+    id: 'drums', name: 'Drums', detail: `${style.drums.bank ?? 'uzu kit'} · ${rhythm.label}`, notes: style.drums.voices.map((voice) => voice.pattern).join(', '), sectionNotes: [] }
+}
+
+/**
+ * The percussion gets a row of its own, which it never had.
+ *
+ * It is the same kit as the drums - every style plays both from one bank - but not the same role,
+ * and the role is what the mixer needs to reach: the drums are the foundation and never drop out,
+ * while the percussion is the decoration and leaves on a bar schedule. It is exactly the part a
+ * player wants to pull down when the hats start to wear, and until now there was no row to do it by.
+ */
+function percRow(style: Style): Layer {
+  const detail = [style.perc.bank ?? 'uzu kit', 'percussion', describePresence(style.arrangement.perc)]
+  return { id: 'perc', name: 'Perc', detail: detail.filter(Boolean).join(' · '), notes: style.perc.pattern, sectionNotes: [] }
 }
 
 function bassRow(style: Style, bars: BuiltBar[], lengths: number[]): Layer {
@@ -336,8 +400,8 @@ function soundsToWarm(voicing: Voicing, programBars: BuiltBar[]): PlanSound[] {
 
   // The cues are part of the drums, so they have to be warmed with them: an unwarmed cue would
   // arrive late the first time it played, which is precisely the bar it exists to make audible.
-  soundNames(style.drums.pattern).forEach((name) => add(name, style.drums.bank))
-  soundNames(style.drums.fill).forEach((name) => add(name, style.drums.bank))
+  style.drums.voices.forEach((voice) => soundNames(voice.pattern).forEach((name) => add(name, style.drums.bank)))
+  style.drums.fill.forEach((fill) => soundNames(fill).forEach((name) => add(name, style.drums.bank)))
   soundNames(style.drums.turn).forEach((name) => add(name, style.drums.bank))
   soundNames(style.perc.pattern).forEach((name) => add(name, style.perc.bank))
 
@@ -351,7 +415,7 @@ function soundsToWarm(voicing: Voicing, programBars: BuiltBar[]): PlanSound[] {
     bar.parts.forEach((part) => {
       // The bass figure only sounds where the figure is not a rest.
       if (bassSample) part.bass.filter((note) => note !== '~').forEach((note) => add(bassSample, undefined, note))
-      if (padSample && withPad) part.notes.forEach((note) => add(padSample, undefined, note))
+      if (padSample && withPad) part.pad.forEach((note) => add(padSample, undefined, note))
       if (figureSample && withFigure) part.notes.forEach((note) => add(figureSample, undefined, note))
     }),
   )
@@ -383,7 +447,7 @@ export function buildPattern(selection: Selection, handoff?: Handoff): PatternPl
   const programBars = handoffBars(bars, handoff, (id) => barsFor(voicing, id))
 
   const voices: Voice[] = [drumVoice(voicing), percVoice(voicing), bassVoice(voicing, programBars)]
-  const layers: Layer[] = [drumsRow(style, rhythm), bassRow(style, bars, lengths)]
+  const layers: Layer[] = [drumsRow(style, rhythm), percRow(style), bassRow(style, bars, lengths)]
 
   if (selection.chordMode !== 'arp') {
     voices.push(padVoice(voicing, programBars))

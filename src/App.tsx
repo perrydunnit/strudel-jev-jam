@@ -355,17 +355,28 @@ function App() {
     // produce an answer about a form that has not been heard yet.
   }
 
-  // A style is self-contained, so picking one also switches to its own first phrase and
-  // its own lead: neither exists in the style being left.
+  // A style is self-contained, so picking one also switches to its own first phrase, its own lead
+  // and its own tempo: none of the three exists in the style being left.
+  //
+  // The tempo follows the style only while the player has not taken it over, and "taken it over" is
+  // simply being off the style's own tempo - so it needs no second flag to keep in step. Leave a
+  // style whose tempo you never touched and the new one arrives at its own tempo; leave one you did
+  // touch and yours comes with you.
   const chooseStyle = (id: Selection['style']) => {
     const next = findStyle(id)
+    const followsTempo = selection.tempo === findStyle(selection.style).tempo
     passes.current = 0
     setHeldCount(0)
     // Any change on its way in names a phrase from the style being left, so it cannot survive.
     setPendingHandoff(null)
     setDirectionSource('local')
     setLastDecision(null)
-    update({ style: id, sequence: homeSequence(next).id, solo: next.solo })
+    update({
+      style: id,
+      sequence: homeSequence(next).id,
+      solo: next.solo,
+      ...(followsTempo ? { tempo: next.tempo } : {}),
+    })
   }
 
   // Asking for a phrase does not cut the one playing short. The program is rebuilt straight
@@ -445,7 +456,6 @@ function App() {
             snapshot,
             preloaded,
             backing,
-            leadLevel,
             keysThrough,
             audioReady,
             jevEnabled,
@@ -454,7 +464,6 @@ function App() {
             chooseStyle,
             update,
             toggleSession: () => void toggleSession(),
-            setLeadLevel,
             setKeysThrough,
             toggleJev,
             connectMidi: () => void midi.connect(),
@@ -478,8 +487,9 @@ function App() {
             isPlaying,
             player,
             mixer,
+            leadLevel,
           }}
-          actions={{ chooseSequence }}
+          actions={{ chooseSequence, setLeadLevel }}
         />
       </section>
 

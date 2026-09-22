@@ -81,6 +81,7 @@ export function describePresence(mask: string | undefined): string {
 export function soundCode(sound: Sound): string {
   const parts = [sound.sample ? `s("${sound.sample}")` : `s("${sound.synth ?? 'sawtooth'}")`]
   if (sound.partials) parts.push(`partials([${sound.partials.join(',')}])`)
+  if (sound.detune !== undefined) parts.push(`detune(${sound.detune})`)
   if (sound.lpf) parts.push(`lpf(${sound.lpf})`)
   if (sound.lpq) parts.push(`lpq(${sound.lpq})`)
   if (sound.lpenv) parts.push(`lpenv(${sound.lpenv})`)
@@ -106,6 +107,7 @@ export function layerSound(layer: StyleLayer): Sound {
     // A built-in waveform is a shape, not a timbre, so an additive instrument carries the
     // spectrum that makes it one.
     partials: instrument.partials,
+    detune: layer.detune,
     lpf: layer.lpf,
     lpq: layer.lpq,
     lpenv: layer.lpenv,

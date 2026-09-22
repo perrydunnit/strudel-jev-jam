@@ -91,11 +91,26 @@ input[type='range'] { display: block; width: 100%; margin-top: 18px; accent-colo
 .stage-heading { justify-content: space-between; align-items: flex-start; }
 .bar-count { color: var(--muted); font-family: monospace; font-size: 11px; letter-spacing: 0.08em; }
 .now-playing { margin: 24px 0 28px; border: 1px solid var(--line); background: rgba(16, 19, 18, 0.55); }
-.layer { display: grid; grid-template-columns: 72px minmax(0, 1fr) 148px auto; gap: 4px 14px; padding: 13px 15px; border-top: 1px solid var(--line); }
+/* The fourth column is pinned rather than sized by its contents, so nothing a row gains can take
+   width out of the notes line and wrap the row taller. 62px holds the two switches (58). */
+.layer { display: grid; grid-template-columns: 72px minmax(0, 1fr) 148px 62px; gap: 4px 14px; padding: 13px 15px; border-top: 1px solid var(--line); }
 .layer:first-child { border-top: 0; }
 /* A silenced part stays readable, it just stops claiming attention. */
 .layer.silenced { opacity: 0.42; }
-.layer-actions { grid-column: 4; grid-row: span 2; display: flex; align-self: center; gap: 6px; }
+.layer-actions { grid-column: 4; grid-row: span 2; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; }
+.layer-switches { display: flex; gap: 6px; }
+/* Scoped through `.layer-actions` on purpose: `input[type='range']` above is (0,1,1) and beats a
+   bare class, so this would silently inherit the rail's full width and its 18px top margin - the
+   margin being what once made a slider in this row cost 31px of row height rather than the 21px
+   the slider itself needs. */
+.layer-actions .level-slider { width: 54px; height: 14px; margin: 0; appearance: none; background: linear-gradient(var(--line), var(--line)) center / 100% 3px no-repeat; cursor: ew-resize; }
+.layer-actions .level-slider::-webkit-slider-thumb { appearance: none; width: 9px; height: 9px; border-radius: 50%; background: var(--muted); }
+.layer-actions .level-slider::-moz-range-thumb { width: 9px; height: 9px; border: 0; border-radius: 50%; background: var(--muted); }
+.layer-actions .level-slider.trimmed { background: linear-gradient(rgba(200, 216, 108, 0.4), rgba(200, 216, 108, 0.4)) center / 100% 3px no-repeat; }
+.layer-actions .level-slider.trimmed::-webkit-slider-thumb { background: var(--acid); }
+.layer-actions .level-slider.trimmed::-moz-range-thumb { background: var(--acid); }
+.mixer-note { display: flex; align-items: flex-start; gap: 14px; }
+.mixer-note .hint { flex: 1; }
 /* The variable the voice is bound to in the program below, so a row and a line match up. */
 .layer-notes b { color: var(--acid); font-weight: 400; }
 /* One Strudel view per voice. Each renderer reads the canvas backing store for its extent. */
